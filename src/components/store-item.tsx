@@ -65,10 +65,12 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
 
+    // Безопасное форматирование цены (критично — убирает краш)
     const formattedPrice = useMemo(() => {
         const raw = itemToAdd.price_html || "";
         const clean = raw.replace(/<[^>]*>/g, "").trim();
         if (clean === "") return "Цена по запросу";
+
         const num = Number(clean.replace(/[^0-9.-]+/g, ""));
         return isNaN(num) ? clean : num.toLocaleString("ru-RU");
     }, [itemToAdd.price_html]);
@@ -88,7 +90,6 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {/* Безопасная проверка selectedAttributes */}
                         {"selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes && (
                             <span className="block text-sm text-[#00e6cc] mt-1">
                                 {itemToAdd.selectedAttributes}
