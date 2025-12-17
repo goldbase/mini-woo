@@ -1,4 +1,6 @@
-import {NextRequest, NextResponse} from "next/server";
+export const runtime = 'edge'; // или 'nodejs' (по умолчанию)
+export const preferredRegion = 'auto'; // распределяет по ближайшим регионам
+// import {NextRequest, NextResponse} from "next/server";
 import woo from "@/lib/woo";
 
 export async function GET(request: NextRequest) {
