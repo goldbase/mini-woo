@@ -65,15 +65,16 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
 
-    // Безопасное форматирование цены (убирает краш)
     const formattedPrice = useMemo(() => {
         const raw = itemToAdd.price_html || "";
-        if (raw === "") return "Цена по запросу";
-
         const clean = raw.replace(/<[^>]*>/g, "").trim();
+        if (clean === "") return "Цена по запросу";
         const num = Number(clean.replace(/[^0-9.-]+/g, ""));
         return isNaN(num) ? clean : num.toLocaleString("ru-RU");
     }, [itemToAdd.price_html]);
+
+    // Типобезопасная проверка selectedAttributes
+    const hasSelectedAttributes = "selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes;
 
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
@@ -90,11 +91,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {itemToAdd.selectedAttributes ? (
+                        {hasSelectedAttributes && (
                             <span className="block text-sm text-[#00e6cc] mt-1">
-                                {itemToAdd.selectedAttributes}
+                                {itemToAdd.selectedAttributes as string}
                             </span>
-                        ) : null}
+                        )}
                     </span>
                     <span className="store-product-price block text-2xl font-black text-[#00e6cc] mt-2">
                         {formattedPrice} ₽
