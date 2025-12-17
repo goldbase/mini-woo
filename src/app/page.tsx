@@ -93,34 +93,49 @@ export default function Home() {
         const mainCallback = state.mode === "order" ? handleCheckout : () => dispatch({ type: "order" });
         webApp.MainButton.onClick(mainCallback);
 
-        const backCallback = () => dispatch({ type: "storefront" });
-        webApp.BackButton.onClick(backCallback);
+        // Безопасный BackButton (проверка версии)
+        if (webApp.isVersionAtLeast("7.2")) {
+            const backCallback = () => dispatch({ type: "storefront" });
+            webApp.BackButton.onClick(backCallback);
+
+            return () => {
+                webApp.MainButton.offClick(mainCallback);
+                webApp.BackButton.offClick(backCallback);
+            };
+        }
 
         return () => {
             webApp.MainButton.offClick(mainCallback);
-            webApp.BackButton.offClick(backCallback);
         };
     }, [webApp, state.mode, handleCheckout]);
 
+    // Показ/скрытие BackButton
     useEffect(() => {
         if (!webApp) return;
 
-        if (state.mode === "storefront") {
-            webApp.BackButton.hide();
-        } else {
-            webApp.BackButton.show();
+        if (webApp.isVersionAtLeast("7.2")) {
+            if (state.mode === "storefront") {
+                webApp.BackButton.hide();
+            } else {
+                webApp.BackButton.show();
+            }
         }
     }, [webApp, state.mode]);
 
+    // MainButton при непустой корзине
     useEffect(() => {
         if (!webApp) return;
 
         if (state.cart.size > 0) {
             webApp.MainButton.show();
-            webApp.enableClosingConfirmation();
+            if (webApp.isVersionAtLeast("7.0")) { // closing confirmation с 7.0
+                webApp.enableClosingConfirmation();
+            }
         } else {
             webApp.MainButton.hide();
-            webApp.disableClosingConfirmation();
+            if (webApp.isVersionAtLeast("7.0")) {
+                webApp.disableClosingConfirmation();
+            }
         }
     }, [webApp, state.cart.size]);
 
