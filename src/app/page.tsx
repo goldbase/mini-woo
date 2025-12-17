@@ -8,10 +8,6 @@ import StoreFront from "@/components/store-front";
 import OrderOverview from "@/components/order-overview";
 import ProductOverview from "@/components/product-overview";
 
-// Отключаем статическую генерацию — страница динамическая (критично для onClick)
-export const dynamic = "force-dynamic";
-export const revalidate = 0;
-
 export default function Home() {
     const { webApp, user } = useTelegram();
     const { state, dispatch } = useAppContext();
