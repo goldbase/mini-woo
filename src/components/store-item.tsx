@@ -5,21 +5,29 @@ import { Product, useAppContext } from "@/providers/context-provider";
 import Image from "next/image";
 import { memo, useCallback, useState, useEffect, useMemo } from "react";
 
-interface StoreItemProps {
-    product: Product;
+// Тип вариации из WooCommerce REST API
+interface Variation {
+    id: number;
+    price_html: string;
+    attributes: Array<{
+        name: string;
+        option: string;
+    }>;
+    image?: {
+        src: string;
+        alt?: string;
+    };
 }
 
-// Расширенный тип для элемента корзины (с вариацией)
-interface CartProduct extends Product {
-    variationId?: number; // ID выбранной вариации (для WooCommerce)
-    selectedAttributes?: string; // Строка атрибутов для отображения (например, "200 × 160")
+interface StoreItemProps {
+    product: Product;
 }
 
 const StoreItem = memo(({ product }: StoreItemProps) => {
     const { state, dispatch } = useAppContext();
     const cartItem = state.cart.get(product.id);
 
-    const [selectedVariation, setSelectedVariation] = useState<any>(null);
+    const [selectedVariation, setSelectedVariation] = useState<Variation | null>(null);
 
     useEffect(() => {
         if (product.type === "variable" && product.variations && product.variations.length > 0) {
@@ -29,13 +37,13 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         }
     }, [product.type, product.variations]);
 
-    // Формируем объект для корзины (совместимый с Product + вариация)
-    const itemToAdd = useMemo<CartProduct>(() => {
+    // Объект для корзины (с вариацией)
+    const itemToAdd = useMemo(() => {
         if (selectedVariation) {
-            const attrs = selectedVariation.attributes.map((a: any) => a.option).join(" × ");
+            const attrs = selectedVariation.attributes.map((a) => a.option).join(" × ");
             return {
                 ...product,
-                id: selectedVariation.id, // используем ID вариации для уникальности в корзине
+                id: selectedVariation.id,
                 price_html: selectedVariation.price_html,
                 images: selectedVariation.image ? [selectedVariation.image] : product.images,
                 variationId: selectedVariation.id,
@@ -63,13 +71,22 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         dispatch({ type: "item", product });
     }, [dispatch, product]);
 
-    const imageSrc = itemToAdd.images?.[0]?.src || "/no-image.png";
-    const imageAlt = itemToAdd.images?.[0]?.alt || product.name;
+    // Изображение с fallback
+    const imageSrc = useMemo(() => {
+        const img = itemToAdd.images?.[0];
+        return img?.src || img?.thumbnail || "/no-image.png";
+    }, [itemToAdd.images]);
 
+    const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
+
+    // Безопасное форматирование цены (критично — убирает краш)
     const formattedPrice = useMemo(() => {
-        const raw = itemToAdd.price_html.replace(/<[^>]*>/g, "").trim();
-        const num = Number(raw.replace(/[^0-9.-]+/g, ""));
-        return isNaN(num) ? raw : num.toLocaleString("ru-RU");
+        const raw = itemToAdd.price_html || "";
+        const clean = raw.replace(/<[^>]*>/g, "").trim(); // убираем HTML
+        if (clean === "") return "Цена по запросу";
+
+        const num = Number(clean.replace(/[^0-9.-]+/g, ""));
+        return isNaN(num) ? clean : num.toLocaleString("ru-RU");
     }, [itemToAdd.price_html]);
 
     return (
@@ -102,9 +119,9 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
             {/* Кнопки выбора вариации */}
             {product.type === "variable" && product.variations && product.variations.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3 justify-center">
-                    {product.variations.map((variation: any) => {
+                    {product.variations.map((variation) => {
                         const isSelected = selectedVariation?.id === variation.id;
-                        const attrs = variation.attributes.map((a: any) => a.option).join(" × ");
+                        const attrs = variation.attributes.map((a) => a.option).join(" × ");
 
                         return (
                             <button
@@ -123,17 +140,20 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 </div>
             )}
 
+            {/* Счётчик количества */}
             {cartItem && cartItem.count > 0 && (
                 <div className="store-product-counter text-2xl font-black text-[#00e6cc] mt-3 text-center">
                     {cartItem.count}
                 </div>
             )}
 
+            {/* Кнопки управления корзиной — крупные, по ширине */}
             <div className="store-product-buttons flex justify-between items-center mt-5 gap-4">
                 {cartItem && cartItem.count > 0 ? (
                     <button
                         onClick={handleRemove}
                         className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center text-3xl font-bold hover:bg-red-700 transition-all shadow-lg"
+                        aria-label="Уменьшить количество"
                     >
                         −
                     </button>
@@ -144,6 +164,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <button
                     onClick={handleAdd}
                     className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
+                    aria-label="Добавить в корзину"
                 >
                     <span className="block">
                         {cartItem ? "Ещё" : "В корзину"}
