@@ -2,17 +2,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import woo from "@/lib/woo";
 
-// Edge Runtime — максимальная скорость для Telegram Mini App (рекомендую для РФ/СНГ)
+// Edge Runtime — максимальная скорость для Telegram Mini App
 export const runtime = "edge";
-
-// Автоматический выбор ближайшего региона (или фиксированные: ['fra1', 'waw1'] для РФ)
-export const preferredRegion = "auto";
-// Альтернатива для РФ/СНГ: export const preferredRegion = ['fra1', 'waw1', 'dub1'];
+export const preferredRegion = "auto"; // или ['fra1', 'waw1'] для РФ/СНГ
 
 export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
-
-    // Фильтр только опубликованных товаров (безопасность)
     params.set("status", "publish");
 
     try {
@@ -27,9 +22,26 @@ export async function GET(request: NextRequest) {
             );
         }
 
-        const products = await res.json();
+        let products = await res.json();
 
-        // Кэширование на Vercel Edge (5 мин) — снижает нагрузку на WooCommerce
+        // Fallback: если scaled-изображение битое или отсутствует — используем thumbnail
+        products = products.map((product: any) => {
+            if (product.images && product.images.length > 0) {
+                const primary = product.images[0];
+
+                // Если src пустой или содержит "placeholder" / 404 — меняем на thumbnail
+                if (
+                    !primary.src ||
+                    primary.src.includes("placeholder") ||
+                    primary.src.includes("woocommerce-placeholder")
+                ) {
+                    primary.src = primary.thumbnail || "/no-image.png"; // крайний fallback
+                }
+            }
+            return product;
+        });
+
+        // Кэширование на Edge (5 мин)
         return NextResponse.json(products, {
             headers: {
                 "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
