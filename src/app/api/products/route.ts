@@ -2,9 +2,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import woo from "@/lib/woo";
 
-// Edge Runtime — максимальная скорость для Telegram Mini App
 export const runtime = "edge";
-export const preferredRegion = "auto"; // или ['fra1', 'waw1'] для РФ/СНГ
+export const preferredRegion = "auto";
 
 export async function GET(request: NextRequest) {
     const params = request.nextUrl.searchParams;
@@ -12,36 +11,31 @@ export async function GET(request: NextRequest) {
 
     try {
         const res = await woo.get("products", params);
-
         if (!res.ok) {
             const errorText = await res.text();
             console.error("WooCommerce API error:", res.status, errorText);
-            return NextResponse.json(
-                { error: "Failed to fetch products", details: errorText },
-                { status: res.status }
-            );
+            return NextResponse.json({ error: "Failed to fetch products" }, { status: res.status });
         }
 
         let products = await res.json();
 
-        // Fallback: если scaled-изображение битое или отсутствует — используем thumbnail
-        products = products.map((product: any) => {
-            if (product.images && product.images.length > 0) {
-                const primary = product.images[0];
-
-                // Если src пустой или содержит "placeholder" / 404 — меняем на thumbnail
-                if (
-                    !primary.src ||
-                    primary.src.includes("placeholder") ||
-                    primary.src.includes("woocommerce-placeholder")
-                ) {
-                    primary.src = primary.thumbnail || "/no-image.png"; // крайний fallback
+        // Подгружаем вариации для variable products
+        products = await Promise.all(
+            products.map(async (product: any) => {
+                if (product.type === "variable" && product.variations?.length > 0) {
+                    const variationsRes = await woo.get(`products/${product.id}/variations`);
+                    if (variationsRes.ok) {
+                        product.variations = await variationsRes.json();
+                    } else {
+                        product.variations = [];
+                    }
+                } else {
+                    product.variations = [];
                 }
-            }
-            return product;
-        });
+                return product;
+            })
+        );
 
-        // Кэширование на Edge (5 мин)
         return NextResponse.json(products, {
             headers: {
                 "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
@@ -49,9 +43,6 @@ export async function GET(request: NextRequest) {
         });
     } catch (error) {
         console.error("Proxy error:", error);
-        return NextResponse.json(
-            { error: "Internal server error" },
-            { status: 500 }
-        );
+        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
     }
 }
