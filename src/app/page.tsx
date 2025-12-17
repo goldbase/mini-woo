@@ -93,7 +93,7 @@ export default function Home() {
         const mainCallback = state.mode === "order" ? handleCheckout : () => dispatch({ type: "order" });
         webApp.MainButton.onClick(mainCallback);
 
-        // Безопасный BackButton (проверка версии)
+        // BackButton — только если версия ≥7.2 (убираем предупреждение)
         if (webApp.isVersionAtLeast("7.2")) {
             const backCallback = () => dispatch({ type: "storefront" });
             webApp.BackButton.onClick(backCallback);
@@ -111,14 +111,12 @@ export default function Home() {
 
     // Показ/скрытие BackButton
     useEffect(() => {
-        if (!webApp) return;
+        if (!webApp || !webApp.isVersionAtLeast("7.2")) return;
 
-        if (webApp.isVersionAtLeast("7.2")) {
-            if (state.mode === "storefront") {
-                webApp.BackButton.hide();
-            } else {
-                webApp.BackButton.show();
-            }
+        if (state.mode === "storefront") {
+            webApp.BackButton.hide();
+        } else {
+            webApp.BackButton.show();
         }
     }, [webApp, state.mode]);
 
@@ -128,7 +126,7 @@ export default function Home() {
 
         if (state.cart.size > 0) {
             webApp.MainButton.show();
-            if (webApp.isVersionAtLeast("7.0")) { // closing confirmation с 7.0
+            if (webApp.isVersionAtLeast("7.0")) {
                 webApp.enableClosingConfirmation();
             }
         } else {
