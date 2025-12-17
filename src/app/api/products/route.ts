@@ -11,10 +11,14 @@ export async function GET(request: NextRequest) {
 
     try {
         const res = await woo.get("products", params);
+
         if (!res.ok) {
             const errorText = await res.text();
             console.error("WooCommerce API error:", res.status, errorText);
-            return NextResponse.json({ error: "Failed to fetch products" }, { status: res.status });
+            return NextResponse.json(
+                { error: "Failed to fetch products", details: errorText },
+                { status: res.status }
+            );
         }
 
         let products = await res.json();
@@ -36,6 +40,7 @@ export async function GET(request: NextRequest) {
             })
         );
 
+        // Кэширование на Edge (5 мин)
         return NextResponse.json(products, {
             headers: {
                 "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
@@ -43,6 +48,9 @@ export async function GET(request: NextRequest) {
         });
     } catch (error) {
         console.error("Proxy error:", error);
-        return NextResponse.json({ error: "Internal server error" }, { status: 500 });
+        return NextResponse.json(
+            { error: "Internal server error" },
+            { status: 500 }
+        );
     }
 }
