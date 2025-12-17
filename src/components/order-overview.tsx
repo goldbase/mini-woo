@@ -7,8 +7,8 @@ import { memo } from "react";
 const OrderOverview = memo(() => {
     const { state, dispatch } = useAppContext();
 
-    // Итоговая сумма (с учётом количества и вариации)
-    const total = state.cart.reduce((sum, item) => {
+    // Итоговая сумма (безопасно, с учётом количества и вариации)
+    const total = Array.from(state.cart.values()).reduce((sum, item) => {
         const raw = item.product.price_html || "";
         const clean = raw.replace(/<[^>]*>/g, "").trim();
         const price = Number(clean.replace(/[^0-9.-]+/g, "")) || 0;
@@ -31,9 +31,12 @@ const OrderOverview = memo(() => {
 
     return (
         <section className="order-overview px-6 py-8 bg-gray-900/50 backdrop-blur-lg rounded-3xl mx-4 mt-6">
-            <div className="order-header-wrap mb-6">
+            <div className="order-header-wrap mb-6 flex justify-between items-center">
                 <h2 className="order-header text-3xl font-black text-white">Ваш заказ</h2>
-                <span className="order-edit text-[#00e6cc] text-lg cursor-pointer" onClick={() => dispatch({ type: "storefront" })}>
+                <span 
+                    className="order-edit text-[#00e6cc] text-lg cursor-pointer hover:underline"
+                    onClick={() => dispatch({ type: "storefront" })}
+                >
                     Редактировать
                 </span>
             </div>
@@ -41,6 +44,11 @@ const OrderOverview = memo(() => {
             <div className="order-items space-y-4 mb-8">
                 {Array.from(state.cart.values()).map((item) => {
                     const attrs = (item.product as any).selectedAttributes || "";
+                    const rawPrice = item.product.price_html || "";
+                    const cleanPrice = rawPrice.replace(/<[^>]*>/g, "").trim();
+                    const price = Number(cleanPrice.replace(/[^0-9.-]+/g, "")) || 0;
+                    const formattedPrice = price.toLocaleString("ru-RU");
+
                     return (
                         <div key={item.product.id} className="flex justify-between items-center bg-gray-800/50 rounded-2xl p-4">
                             <div>
@@ -49,13 +57,7 @@ const OrderOverview = memo(() => {
                                 <p className="text-sm text-gray-400">Количество: {item.count}</p>
                             </div>
                             <p className="text-xl font-bold text-[#00e6cc]">
-                                {item.count} × { /* цена одного */ }
-                                {(() => {
-                                    const raw = item.product.price_html || "";
-                                    const clean = raw.replace(/<[^>]*>/g, "").trim();
-                                    const num = Number(clean.replace(/[^0-9.-]+/g, "")) || 0;
-                                    return num.toLocaleString("ru-RU");
-                                })()} ₽
+                                {formattedPrice} ₽
                             </p>
                         </div>
                     );
@@ -78,12 +80,15 @@ const OrderOverview = memo(() => {
 
             <div className="order-text-field-wrap mt-8">
                 <textarea
-                    className="order-text-field w-full bg-gray-800/50 backdrop-blur border border-gray-700 rounded-2xl p-4 text-white placeholder-gray-500"
+                    className="order-text-field w-full bg-gray-800/50 backdrop-blur border border-gray-700 rounded-2xl p-4 text-white placeholder-gray-500 resize-none"
                     rows={3}
                     placeholder="Комментарий к заказу (размер, адрес, пожелания)…"
                     value={state.comment || ""}
                     onChange={(e) => dispatch({ type: "comment", comment: e.target.value })}
                 />
+                <div className="order-text-field-hint text-sm text-gray-500 mt-2">
+                    Особые пожелания, размеры, адрес доставки и т.д.
+                </div>
             </div>
         </section>
     );
