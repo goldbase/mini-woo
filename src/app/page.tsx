@@ -79,6 +79,7 @@ export default function Home() {
         }
     }, [webApp, user, state.cart, state.comment, state.shippingZone]);
 
+    // Главный useEffect для MainButton и BackButton
     useEffect(() => {
         if (!webApp) return;
 
@@ -93,47 +94,36 @@ export default function Home() {
         const mainCallback = state.mode === "order" ? handleCheckout : () => dispatch({ type: "order" });
         webApp.MainButton.onClick(mainCallback);
 
-        // BackButton и ClosingConfirmation только для версии ≥7.0
-        if (webApp.isVersionAtLeast("7.0")) {
-            const backCallback = () => dispatch({ type: "storefront" });
+        let backCallback: (() => void) | null = null;
+
+        // BackButton только если версия ≥7.2
+        if (webApp.isVersionAtLeast("7.2")) {
+            backCallback = () => dispatch({ type: "storefront" });
             webApp.BackButton.onClick(backCallback);
 
-            return () => {
-                webApp.MainButton.offClick(mainCallback);
-                webApp.BackButton.offClick(backCallback);
-            };
+            if (state.mode === "storefront") {
+                webApp.BackButton.hide();
+            } else {
+                webApp.BackButton.show();
+            }
         }
 
         return () => {
             webApp.MainButton.offClick(mainCallback);
+            if (backCallback && webApp.isVersionAtLeast("7.2")) {
+                webApp.BackButton.offClick(backCallback);
+            }
         };
     }, [webApp, state.mode, handleCheckout]);
 
-    // Показ/скрытие BackButton (только если поддерживается)
+    // Отдельный useEffect для ClosingConfirmation (поддерживается с версии 7.0)
     useEffect(() => {
         if (!webApp || !webApp.isVersionAtLeast("7.0")) return;
 
-        if (state.mode === "storefront") {
-            webApp.BackButton.hide();
-        } else {
-            webApp.BackButton.show();
-        }
-    }, [webApp, state.mode]);
-
-    // MainButton и ClosingConfirmation
-    useEffect(() => {
-        if (!webApp) return;
-
         if (state.cart.size > 0) {
-            webApp.MainButton.show();
-            if (webApp.isVersionAtLeast("7.0")) {
-                webApp.enableClosingConfirmation();
-            }
+            webApp.enableClosingConfirmation();
         } else {
-            webApp.MainButton.hide();
-            if (webApp.isVersionAtLeast("7.0")) {
-                webApp.disableClosingConfirmation();
-            }
+            webApp.disableClosingConfirmation();
         }
     }, [webApp, state.cart.size]);
 
