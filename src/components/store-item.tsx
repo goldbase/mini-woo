@@ -73,6 +73,9 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         return isNaN(num) ? clean : num.toLocaleString("ru-RU");
     }, [itemToAdd.price_html]);
 
+    // Безопасный доступ к selectedAttributes (type guard)
+    const hasSelectedAttributes = "selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes;
+
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
             <div onClick={handleCardClick} className="cursor-pointer" role="button">
@@ -88,11 +91,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {itemToAdd.selectedAttributes ? (
+                        {hasSelectedAttributes && (
                             <span className="block text-sm text-[#00e6cc] mt-1">
-                                {itemToAdd.selectedAttributes}
+                                {itemToAdd.selectedAttributes as string}
                             </span>
-                        ) : null}
+                        )}
                     </span>
                     <span className="store-product-price block text-2xl font-black text-[#00e6cc] mt-2">
                         {formattedPrice} ₽
