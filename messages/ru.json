@@ -1,0 +1,20 @@
+{
+  "StoreCategories": {
+    "pillows": "Подушки",
+    "mattresses": "Эргономические матрасы",
+    "kitchens": "Модульные кухни"
+  },
+  "StoreProduct": {
+    "add": "В корзину",
+    "added": "В корзине"
+  },
+  "OrderOverview": {
+    "title": "Ваш заказ",
+    "edit": "Изменить",
+    "empty": "Корзина пуста",
+    "commentPlaceholder": "Комментарий к заказу…",
+    "commentHint": "Особые пожелания, размеры, доставка и т.д."
+  },
+  "Loading": "Загрузка...",
+  "Currency": "₽"
+}

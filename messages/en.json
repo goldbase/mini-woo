@@ -1,0 +1,19 @@
+{
+  "StoreCategories": {
+    "pillows": "Pillows",
+    "mattresses": "Mattresses",
+    "kitchens": "Kitchens"
+  },
+  "StoreProduct": {
+    "add": "Add",
+    "added": "Added"
+  },
+  "OrderOverview": {
+    "title": "Your Order",
+    "edit": "Edit",
+    "empty": "Cart is empty",
+    "commentPlaceholder": "Add comment…",
+    "commentHint": "Any special requests, details, final wishes etc."
+  },
+  "Loading": "Loading..."
+}

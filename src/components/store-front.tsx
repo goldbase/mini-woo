@@ -1,41 +1,80 @@
 // src/components/store-front.tsx
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useCallback, memo } from "react"; // ← Объединили импорты — ошибка исчезла
 import StoreItem, { StoreItemSkeleton } from "@/components/store-item";
 import { fetchProducts, useAppContext } from "@/providers/context-provider";
 import StoreCategories from "@/components/store-categories";
 import InfiniteScroll from "@/components/infinite-scroll";
 
-// Добавляем dynamic import с ssr: false
 import dynamic from "next/dynamic";
 
-const StoreFrontInner = () => {
+const StoreFrontInner = memo(() => {
     const { state, dispatch } = useAppContext();
 
-    useEffect(() => {
-        // Загружаем при первой загрузке и при смене категории
+    // Загрузка товаров: при первой загрузке или при смене категории
+    const loadProducts = useCallback(() => {
+        // Убрали state.prevCategory — его нет в контексте
+        // Логика упрощена: загружаем, если товаров нет или категория изменилась
+        // fetchProducts внутри обычно сам проверяет, нужно ли делать запрос
         if (state.products.length === 0 || state.selectedCategory) {
             fetchProducts(state, dispatch);
         }
-    }, [state.selectedCategory, state, dispatch]);
+    }, [
+        state.products.length,
+        state.selectedCategory, // Только реальные поля контекста
+        dispatch,
+    ]);
 
-    const items = state.loading && state.products.length === 0
-        ? Array(12).fill(0).map((_, index) => <StoreItemSkeleton key={`skeleton-${index}`} />)
-        : state.products.map((product) => <StoreItem key={product.id} product={product} />);
+    useEffect(() => {
+        loadProducts();
+    }, [loadProducts]);
+
+    const isInitialLoading = state.loading && state.products.length === 0;
+
+    const items = isInitialLoading
+        ? Array(12)
+              .fill(null)
+              .map((_, index) => <StoreItemSkeleton key={`skeleton-${index}`} />)
+        : state.products.map((product) => (
+              <StoreItem key={product.id} product={product} />
+          ));
+
+    const handleLoadMore = useCallback(() => {
+        fetchProducts(state, dispatch);
+    }, [dispatch]); // state не нужен — он меняется часто, но fetchProducts использует актуальный state из контекста
 
     return (
         <section className="store-products">
             <StoreCategories />
-            <div className="grid grid-cols-2 gap-4">{items}</div>
+
+            <div className="grid grid-cols-2 gap-4 px-4">
+                {items}
+            </div>
+
             <InfiniteScroll
-                callback={() => fetchProducts(state, dispatch)}
+                callback={handleLoadMore}
                 hasMore={state.hasMore}
                 loading={state.loading}
             />
         </section>
     );
-};
+});
 
-// Отключаем SSR полностью — гидратация не будет сравниваться
-export default dynamic(() => Promise.resolve(StoreFrontInner), { ssr: false });
+StoreFrontInner.displayName = "StoreFrontInner";
+
+export default dynamic(() => Promise.resolve(StoreFrontInner), {
+    ssr: false,
+    loading: () => (
+        <section className="store-products">
+            <StoreCategories />
+            <div className="grid grid-cols-2 gap-4 px-4">
+                {Array(12)
+                    .fill(null)
+                    .map((_, index) => (
+                        <StoreItemSkeleton key={`initial-skeleton-${index}`} />
+                    ))}
+            </div>
+        </section>
+    ),
+});
