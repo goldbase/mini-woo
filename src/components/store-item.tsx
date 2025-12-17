@@ -65,12 +65,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
 
-    // Безопасное форматирование цены (критично — убирает краш)
+    // Безопасное форматирование цены
     const formattedPrice = useMemo(() => {
         const raw = itemToAdd.price_html || "";
         const clean = raw.replace(/<[^>]*>/g, "").trim();
         if (clean === "") return "Цена по запросу";
-
         const num = Number(clean.replace(/[^0-9.-]+/g, ""));
         return isNaN(num) ? clean : num.toLocaleString("ru-RU");
     }, [itemToAdd.price_html]);
@@ -90,7 +89,8 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {"selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes && (
+                        {/* Безопасная проверка через optional chaining */}
+                        {itemToAdd.selectedAttributes && (
                             <span className="block text-sm text-[#00e6cc] mt-1">
                                 {itemToAdd.selectedAttributes}
                             </span>
@@ -102,6 +102,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 </div>
             </div>
 
+            {/* Кнопки выбора вариации */}
             {product.type === "variable" && product.variations && product.variations.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3 justify-center">
                     {product.variations.map((variation: any) => {
@@ -125,12 +126,14 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 </div>
             )}
 
+            {/* Счётчик количества */}
             {cartItem && cartItem.count > 0 && (
                 <div className="store-product-counter text-2xl font-black text-[#00e6cc] mt-3 text-center">
                     {cartItem.count}
                 </div>
             )}
 
+            {/* Кнопки управления корзиной */}
             <div className="store-product-buttons flex justify-between items-center mt-5 gap-4">
                 {cartItem && cartItem.count > 0 ? (
                     <button
