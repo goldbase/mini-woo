@@ -19,7 +19,6 @@ export default function Home() {
 
         const invoiceSupported = webApp.isVersionAtLeast("6.1");
 
-        // Формируем массив товаров для заказа (с variationId, если есть)
         const items = Array.from(state.cart.values()).map((item) => ({
             id: item.product.id,
             variationId: (item.product as any).variationId || undefined,
@@ -39,9 +38,7 @@ export default function Home() {
         try {
             const res = await fetch("/api/orders", {
                 method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                },
+                headers: { "Content-Type": "application/json" },
                 body,
             });
 
@@ -58,19 +55,16 @@ export default function Home() {
             if (invoiceSupported && result.invoice_link) {
                 webApp.openInvoice(result.invoice_link, (status) => {
                     webApp.MainButton.hideProgress();
-
                     if (status === "paid") {
                         webApp.HapticFeedback.notificationOccurred("success");
                         webApp.showAlert("Оплата прошла успешно! Заказ оформлен.");
                         webApp.close();
                     } else if (status === "failed") {
                         webApp.HapticFeedback.notificationOccurred("error");
-                        webApp.showAlert("Оплата не удалась. Попробуйте снова.");
+                        webApp.showAlert("Оплата не удалась.");
                     } else if (status === "cancelled") {
                         webApp.HapticFeedback.notificationOccurred("warning");
                         webApp.showAlert("Оплата отменена.");
-                    } else if (status === "pending") {
-                        webApp.showAlert("Оплата в обработке...");
                     }
                 });
             } else {
@@ -80,32 +74,34 @@ export default function Home() {
             }
         } catch (error) {
             console.error("Checkout error:", error);
-            webApp.showAlert("Ошибка сети. Проверьте подключение и попробуйте снова.");
+            webApp.showAlert("Ошибка сети. Проверьте подключение.");
             webApp.MainButton.hideProgress();
         }
     }, [webApp, user, state.cart, state.comment, state.shippingZone]);
 
-    // Настройка MainButton и BackButton
+    // Настройка кнопок
     useEffect(() => {
         if (!webApp) return;
 
         const mainButtonText = state.mode === "order" ? "ОПЛАТИТЬ ЗАКАЗ" : "ПЕРЕЙТИ К ЗАКАЗУ";
-        const mainButtonColor = "#00d0b8"; // бирюзовый акцент как на сайте
 
         webApp.MainButton.setParams({
             text: mainButtonText,
-            color: mainButtonColor,
+            color: "#00d0b8",
             text_color: "#0b182f",
         });
 
         const mainCallback = state.mode === "order" ? handleCheckout : () => dispatch({ type: "order" });
         webApp.MainButton.onClick(mainCallback);
 
-        webApp.BackButton.onClick(() => dispatch({ type: "storefront" }));
+        // Обработчик BackButton
+        const backCallback = () => dispatch({ type: "storefront" });
+        webApp.BackButton.onClick(backCallback);
 
+        // Cleanup — снимаем оба обработчика
         return () => {
             webApp.MainButton.offClick(mainCallback);
-            webApp.BackButton.offClick();
+            webApp.BackButton.offClick(backCallback);
         };
     }, [webApp, state.mode, handleCheckout]);
 
@@ -120,7 +116,7 @@ export default function Home() {
         }
     }, [webApp, state.mode]);
 
-    // Показ MainButton при непустой корзине
+    // MainButton при непустой корзине
     useEffect(() => {
         if (!webApp) return;
 
