@@ -1,90 +1,208 @@
-@import "@/styles/store-front.css";
-@import "@/styles/order-overview.css";
-@import "@/styles/product-overview.css";
+/* src/app/globals.css — полная адаптация под стиль ergospine.ru 2025 */
 
+/* Переопределяем Telegram-стили — принудительно */
 :root {
-    --tg-color-scheme: light;
-    --tg-theme-bg-color: #ffffff;
-    --tg-theme-secondary-bg-color: #f0f0f0;
-    --tg-theme-text-color: #222222;
-    --tg-theme-hint-color: #a8a8a8;
-    --tg-theme-link-color: #2678b6;
-    --tg-theme-button-color: #50a8eb;
-    --tg-theme-button-text-color: #ffffff;
-    --tg-viewport-height: 10vh;
-    --tg-viewport-stable-height: 10vh;
+  --tg-color-scheme: dark;
+  --tg-theme-bg-color: #0b182f;
+  --tg-theme-secondary-bg-color: #0f1e3a;
+  --tg-theme-text-color: #e2e8f0;
+  --tg-theme-hint-color: #94a3b8;
+  --tg-theme-link-color: #00d0b8;
+  --tg-theme-button-color: #00d0b8;
+  --tg-theme-button-text-color: #0b182f;
+  --accent-color: #00d0b8;
+  --accent-gradient: linear-gradient(90deg, #00d0b8, #00e6cc);
 }
 
-@media (prefers-color-scheme: dark) {
-    :root {
-        --tg-color-scheme: dark;
-        --tg-theme-bg-color: #1d2733;
-        --tg-theme-secondary-bg-color: #151e27;
-        --tg-theme-text-color: #ffffff;
-        --tg-theme-hint-color: #7d8b99;
-        --tg-theme-link-color: #5eabe1;
-        --tg-theme-button-color: #50a8eb;
-        --tg-theme-button-text-color: #ffffff;
-    }
+/* Основной контейнер — как на сайте */
+.storefront-mode {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0b182f 0%, #0f1e3a 100%);
+  color: #e2e8f0;
+  font-family: 'Manrope', sans-serif, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  padding-bottom: 100px; /* для нижней панели */
 }
 
+/* Карточки товаров — премиум с blur и тенью */
+.store-product {
+  background: rgba(255,255,255,0.08);
+  backdrop-filter: blur(16px);
+  border-radius: 28px;
+  padding: 24px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+  transition: all 0.4s ease;
+  border: 1px solid rgba(0,208,184,0.2);
+}
+
+.store-product:hover {
+  transform: translateY(-12px);
+  box-shadow: 0 30px 70px rgba(0,208,184,0.4);
+  border-color: #00d0b8;
+}
+
+/* Изображение товара */
+.store-product img {
+  border-radius: 24px;
+  object-fit: cover;
+}
+
+/* Название и цена */
+.store-product-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  margin-top: 16px;
+}
+
+.store-product-price {
+  font-size: 24px;
+  font-weight: 900;
+  color: #00e6cc;
+  margin-top: 8px;
+}
+
+/* Кнопки управления корзиной — крупные, по ширине */
+.store-product-buttons {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-top: 20px;
+  gap: 12px;
+}
+
+.store-product-decr-button {
+  width: 56px;
+  height: 56px;
+  background: #e11d48;
+  color: #fff;
+  border-radius: 50%;
+  font-size: 28px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 8px 20px rgba(225,29,72,0.4);
+}
+
+.store-product-incr-button {
+  flex: 1;
+  height: 56px;
+  background: var(--accent-gradient);
+  color: #0b182f;
+  font-size: 20px;
+  font-weight: 800;
+  border-radius: 28px;
+  box-shadow: 0 15px 40px rgba(0,208,184,0.5);
+  transition: all 0.4s ease;
+}
+
+.store-product-incr-button:hover {
+  transform: translateY(-6px);
+  box-shadow: 0 25px 60px rgba(0,208,184,0.7);
+}
+
+.store-product-incr-button .button-item-label {
+  font-size: 20px;
+}
+
+/* Счётчик */
+.store-product-counter {
+  font-size: 24px;
+  font-weight: 900;
+  color: #00e6cc;
+  text-align: center;
+  margin-top: 12px;
+}
+
+/* Корзина */
+.order-overview {
+  background: rgba(255,255,255,0.1);
+  backdrop-filter: blur(20px);
+  border-radius: 32px;
+  padding: 40px;
+  margin: 20px;
+  border: 1px solid rgba(0,208,184,0.3);
+}
+
+.order-header {
+  font-size: 32px;
+  font-weight: 800;
+  color: #ffffff;
+  margin-bottom: 24px;
+}
+
+/* Нижняя мобильная панель — как на сайте */
+.mobile-bottom-nav2025 {
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: rgba(11,24,47,0.98);
+  backdrop-filter: blur(30px);
+  border-top: 1px solid rgba(0,208,184,0.25);
+  padding: 12px 0 18px;
+  z-index: 9999;
+  display: flex;
+  justify-content: space-around;
+  align-items: center;
+  box-shadow: 0 -10px 40px rgba(0,0,0,0.4);
+}
+
+.mobile-nav-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  color: #94a3b8;
+  font-size: 11px;
+  font-weight: 700;
+  transition: all 0.3s ease;
+}
+
+.mobile-nav-item svg {
+  width: 28px;
+  height: 28px;
+  margin-bottom: 6px;
+  fill: currentColor;
+}
+
+.mobile-nav-item:hover,
+.mobile-nav-item.active {
+  color: #00d0b8;
+  transform: translateY(-4px);
+}
+
+.mobile-nav-item:hover svg,
+.mobile-nav-item.active svg {
+  fill: #00d0b8;
+  transform: scale(1.15);
+}
+
+/* WhatsApp большая зелёная кнопка */
+.mobile-nav-item.wa-big {
+  background: #25d366;
+  width: 68px;
+  height: 68px;
+  border-radius: 50%;
+  transform: translateY(-24px);
+  box-shadow: 0 12px 40px rgba(37,211,102,0.6);
+  padding: 0;
+}
+
+.mobile-nav-item.wa-big img {
+  width: 40px;
+  height: 40px;
+  filter: brightness(0) invert(1);
+}
+
+.mobile-nav-item.wa-big:hover {
+  transform: translateY(-28px) scale(1.08);
+}
+
+/* Скрываем на десктопе */
+@media (min-width: 1025px) {
+  .mobile-bottom-nav2025 { display: none !important; }
+}
+
+/* Отступ для контента от нижней панели */
 body {
-    font-family: var(--default-font);
-    font-size: 13px;
-    line-height: 16px;
-    font-weight: 400;
-    background-color: var(--block-bg-color);
-    color: var(--text-color);
-    color-scheme: var(--tg-color-scheme);
-    margin: 0;
-    padding: 0;
-    width: 1px;
-    min-width: 100%;
-
-    --default-font: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Segoe UI Symbol';
-    --block-bg-color: var(--tg-theme-bg-color);
-    --bg-color: var(--tg-theme-secondary-bg-color, #ebedf0);
-    --animation: .15s ease;
-    --page-animation-duration: .3s;
-    --page-animation: var(--page-animation-duration) ease;
-    --status-height: 48px;
-    --accent-color: #31b545;
-    --main-color: #f8a917;
-    --text-color: #222;
-    --page-hint-color: #83878a;
-    --hint-color: #74787a;
-    --placeholder-color: #999da1;
-    --ripple-duration: .45s;
-    --ripple-end-duration: .3s;
-    -webkit-user-select: none;
-    user-select: none;
-    cursor: default;
+  padding-bottom: 100px !important;
 }
-
-@media (prefers-color-scheme: dark) {
-    body {
-        --block-bg-color: var(--tg-theme-bg-color);
-        --bg-color: var(--tg-theme-secondary-bg-color, #0f0f0f);
-        --text-color: #fff;
-        --page-hint-color: #9b9ba1;
-        --hint-color: #64666d;
-        --placeholder-color: #5d6163;
-    }
-}
-
-* {
-    -webkit-tap-highlight-color: transparent;
-}
-
-main {
-    min-height: 100vh;
-}
-
-main.order-mode {
-    background-color: var(--bg-color);
-}
-
-section {
-    transition: filter var(--animation);
-}
-
