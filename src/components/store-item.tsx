@@ -16,17 +16,19 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
     // Состояние выбранной вариации
     const [selectedVariation, setSelectedVariation] = useState<any>(null);
 
-    // При загрузке товара выбираем первую вариацию по умолчанию (если есть)
+    // Автоматический выбор первой вариации при загрузке variable товара
     useEffect(() => {
-        if (product.type === "variable" && product.variations?.length > 0) {
+        if (product.type === "variable" && product.variations && product.variations.length > 0) {
             setSelectedVariation(product.variations[0]);
         } else {
             setSelectedVariation(null);
         }
-    }, [product]);
+    }, [product.type, product.variations]);
 
+    // Товар для добавления (вариация или основной)
     const itemToAdd = selectedVariation || product;
 
+    // Обработчики с haptic feedback
     const handleAdd = useCallback(() => {
         dispatch({ type: "inc", product: itemToAdd });
         if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
@@ -45,78 +47,97 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         dispatch({ type: "item", product: itemToAdd });
     }, [dispatch, itemToAdd]);
 
-    const imageSrc = itemToAdd.images[0]?.src || "/no-image.png";
-    const imageAlt = itemToAdd.images[0]?.alt || itemToAdd.name;
+    // Изображение (с fallback на thumbnail или no-image)
+    const imageSrc = 
+        itemToAdd.images?.[0]?.src || 
+        itemToAdd.images?.[0]?.thumbnail || 
+        "/no-image.png";
 
-    // Цена выбранной вариации
+    const imageAlt = itemToAdd.images?.[0]?.alt || itemToAdd.name || "Товар";
+
+    // Цена выбранной вариации или основной
     const rawPrice = (selectedVariation?.price_html || product.price_html || "").replace(/<[^>]*>/g, "").trim();
-    const formattedPrice = Number(rawPrice.replace(/[^0-9.-]+/g, "")).toLocaleString("ru-RU");
+    const numericPrice = Number(rawPrice.replace(/[^0-9.-]+/g, ""));
+    const formattedPrice = isNaN(numericPrice) ? rawPrice : numericPrice.toLocaleString("ru-RU");
 
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
+            {/* Кликабельная карточка */}
             <div onClick={handleCardClick} className="cursor-pointer" role="button">
                 <Image
                     src={imageSrc}
                     alt={imageAlt}
                     width={300}
                     height={300}
-                    className="w-full h-auto object-cover rounded-lg"
+                    className="w-full h-auto object-cover rounded-2xl"
                     loading="lazy"
                     unoptimized
                 />
-                <div className="store-product-label mt-2">
-                    <span className="store-product-title block text-sm font-medium">{product.name}</span>
-                    <span className="store-product-price block text-lg font-bold">
+                <div className="store-product-label mt-3">
+                    <span className="store-product-title block text-base font-bold text-white">
+                        {product.name}
+                    </span>
+                    <span className="store-product-price block text-2xl font-black text-[#00e6cc] mt-2">
                         {formattedPrice} ₽
                     </span>
                 </div>
             </div>
 
-            {/* Выбор вариации — только для variable */}
-            {product.type === "variable" && product.variations?.length > 0 && (
-                <div className="mt-3 flex flex-wrap gap-2">
+            {/* Выбор вариации — кнопки (для variable товаров) */}
+            {product.type === "variable" && product.variations && product.variations.length > 0 && (
+                <div className="mt-4 flex flex-wrap gap-3 justify-center">
                     {product.variations.map((variation: any) => {
                         const isSelected = selectedVariation?.id === variation.id;
-                        const attributes = variation.attributes.map((a: any) => a.option).join(" / ");
+                        const attrs = variation.attributes
+                            .map((a: any) => a.option)
+                            .join(" × ");
 
                         return (
                             <button
                                 key={variation.id}
                                 onClick={() => setSelectedVariation(variation)}
-                                className={`px-3 py-1 rounded-full text-sm font-medium transition-all ${
+                                className={`px-6 py-3 rounded-full text-sm font-bold transition-all duration-300 ${
                                     isSelected
-                                        ? "bg-[var(--accent-color)] text-white"
-                                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
+                                        ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-lg"
+                                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
                                 }`}
                             >
-                                {attributes}
+                                {attrs}
                             </button>
                         );
                     })}
                 </div>
             )}
 
+            {/* Счётчик количества */}
             {cartItem && cartItem.count > 0 && (
-                <div className="store-product-counter font-bold text-lg mt-2">{cartItem.count}</div>
+                <div className="store-product-counter text-2xl font-black text-[#00e6cc] mt-3 text-center">
+                    {cartItem.count}
+                </div>
             )}
 
-            <div className="store-product-buttons flex justify-between mt-3">
+            {/* Кнопки управления корзиной — крупные, по ширине */}
+            <div className="store-product-buttons flex justify-between items-center mt-5 gap-4">
                 {cartItem && cartItem.count > 0 ? (
                     <button
                         onClick={handleRemove}
-                        className="w-10 h-10 bg-red-500 text-white rounded-full flex items-center justify-center text-xl hover:bg-red-600"
+                        className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center text-3xl font-bold hover:bg-red-700 transition-all shadow-lg"
+                        aria-label="Уменьшить количество"
                     >
                         −
                     </button>
                 ) : (
-                    <div className="w-10 h-10" />
+                    <div className="w-14 h-14" />
                 )}
 
                 <button
                     onClick={handleAdd}
-                    className="px-4 py-2 bg-green-600 text-white rounded-lg font-medium hover:bg-green-700"
+                    className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
+                    aria-label="Добавить в корзину"
                 >
-                    <span>{cartItem ? "Ещё" : "В корзину"}</span>
+                    <span className="block">
+                        {cartItem ? "Ещё" : "В корзину"}
+                    </span>
                 </button>
             </div>
         </div>
@@ -127,13 +148,13 @@ StoreItem.displayName = "StoreItem";
 
 export const StoreItemSkeleton = memo(() => (
     <div className="store-product animate-pulse">
-        <div className="bg-gray-300 rounded-lg w-full aspect-square" />
-        <div className="mt-2 space-y-2">
-            <div className="bg-gray-300 h-4 rounded w-4/5" />
-            <div className="bg-gray-300 h-6 rounded w-3/5" />
+        <div className="bg-gray-700 rounded-2xl w-full aspect-square" />
+        <div className="mt-3 space-y-3">
+            <div className="bg-gray-700 h-5 rounded w-4/5" />
+            <div className="bg-gray-700 h-8 rounded w-3/5" />
         </div>
-        <div className="mt-4 flex justify-end">
-            <div className="bg-gray-300 h-10 w-32 rounded-lg" />
+        <div className="mt-6 flex justify-end">
+            <div className="bg-gray-700 h-16 w-full rounded-3xl" />
         </div>
     </div>
 ));
