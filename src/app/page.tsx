@@ -8,6 +8,10 @@ import StoreFront from "@/components/store-front";
 import OrderOverview from "@/components/order-overview";
 import ProductOverview from "@/components/product-overview";
 
+// Отключаем статическую генерацию — страница динамическая (критично для onClick)
+export const dynamic = "force-dynamic";
+export const revalidate = 0;
+
 export default function Home() {
     const { webApp, user } = useTelegram();
     const { state, dispatch } = useAppContext();
@@ -79,7 +83,6 @@ export default function Home() {
         }
     }, [webApp, user, state.cart, state.comment, state.shippingZone]);
 
-    // Настройка кнопок
     useEffect(() => {
         if (!webApp) return;
 
@@ -94,18 +97,15 @@ export default function Home() {
         const mainCallback = state.mode === "order" ? handleCheckout : () => dispatch({ type: "order" });
         webApp.MainButton.onClick(mainCallback);
 
-        // Обработчик BackButton
         const backCallback = () => dispatch({ type: "storefront" });
         webApp.BackButton.onClick(backCallback);
 
-        // Cleanup — снимаем оба обработчика
         return () => {
             webApp.MainButton.offClick(mainCallback);
             webApp.BackButton.offClick(backCallback);
         };
     }, [webApp, state.mode, handleCheckout]);
 
-    // Показ/скрытие BackButton
     useEffect(() => {
         if (!webApp) return;
 
@@ -116,7 +116,6 @@ export default function Home() {
         }
     }, [webApp, state.mode]);
 
-    // MainButton при непустой корзине
     useEffect(() => {
         if (!webApp) return;
 
