@@ -3,7 +3,20 @@
 
 import { Product, useAppContext } from "@/providers/context-provider";
 import Image from "next/image";
-import { memo, useCallback, useState, useEffect } from "react";
+import { memo, useCallback, useState, useEffect, useMemo } from "react";
+
+// Тип вариации (из WooCommerce REST API)
+interface Variation {
+    id: number;
+    price_html: string;
+    attributes: Array<{
+        name: string;
+        option: string;
+    }>;
+    image?: {
+        src: string;
+    };
+}
 
 interface StoreItemProps {
     product: Product;
@@ -13,10 +26,10 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
     const { state, dispatch } = useAppContext();
     const cartItem = state.cart.get(product.id);
 
-    // Состояние выбранной вариации
-    const [selectedVariation, setSelectedVariation] = useState<any>(null);
+    // Выбранная вариация
+    const [selectedVariation, setSelectedVariation] = useState<Variation | null>(null);
 
-    // Автоматический выбор первой вариации при загрузке variable товара
+    // Автовыбор первой вариации для variable товаров
     useEffect(() => {
         if (product.type === "variable" && product.variations && product.variations.length > 0) {
             setSelectedVariation(product.variations[0]);
@@ -26,9 +39,9 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
     }, [product.type, product.variations]);
 
     // Товар для добавления (вариация или основной)
-    const itemToAdd = selectedVariation || product;
+    const itemToAdd = useMemo(() => selectedVariation || product, [selectedVariation, product]);
 
-    // Обработчики с haptic feedback
+    // Обработчики с haptic
     const handleAdd = useCallback(() => {
         dispatch({ type: "inc", product: itemToAdd });
         if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
@@ -47,23 +60,30 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         dispatch({ type: "item", product: itemToAdd });
     }, [dispatch, itemToAdd]);
 
-    // Изображение (с fallback на thumbnail или no-image)
-    const imageSrc = 
-        itemToAdd.images?.[0]?.src || 
-        itemToAdd.images?.[0]?.thumbnail || 
-        "/no-image.png";
+    // Изображение с fallback
+    const imageSrc = useMemo(() => {
+        const img = itemToAdd.images?.[0];
+        return img?.src || img?.thumbnail || "/no-image.png";
+    }, [itemToAdd.images]);
 
     const imageAlt = itemToAdd.images?.[0]?.alt || itemToAdd.name || "Товар";
 
-    // Цена выбранной вариации или основной
-    const rawPrice = (selectedVariation?.price_html || product.price_html || "").replace(/<[^>]*>/g, "").trim();
-    const numericPrice = Number(rawPrice.replace(/[^0-9.-]+/g, ""));
-    const formattedPrice = isNaN(numericPrice) ? rawPrice : numericPrice.toLocaleString("ru-RU");
+    // Форматированная цена
+    const formattedPrice = useMemo(() => {
+        const raw = (selectedVariation?.price_html || product.price_html || "").replace(/<[^>]*>/g, "").trim();
+        const num = Number(raw.replace(/[^0-9.-]+/g, ""));
+        return isNaN(num) ? raw : num.toLocaleString("ru-RU");
+    }, [selectedVariation?.price_html, product.price_html]);
 
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
-            {/* Кликабельная карточка */}
-            <div onClick={handleCardClick} className="cursor-pointer" role="button">
+            {/* Кликабельная карточка товара */}
+            <div
+                onClick={handleCardClick}
+                className="cursor-pointer"
+                role="button"
+                aria-label={`Просмотр товара ${product.name}`}
+            >
                 <Image
                     src={imageSrc}
                     alt={imageAlt}
@@ -83,14 +103,12 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 </div>
             </div>
 
-            {/* Выбор вариации — кнопки (для variable товаров) */}
+            {/* Кнопки выбора вариации (размер, жёсткость и т.д.) */}
             {product.type === "variable" && product.variations && product.variations.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3 justify-center">
-                    {product.variations.map((variation: any) => {
+                    {product.variations.map((variation) => {
                         const isSelected = selectedVariation?.id === variation.id;
-                        const attrs = variation.attributes
-                            .map((a: any) => a.option)
-                            .join(" × ");
+                        const attrs = variation.attributes.map((a) => a.option).join(" × ");
 
                         return (
                             <button
