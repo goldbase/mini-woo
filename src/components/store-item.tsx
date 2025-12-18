@@ -2,7 +2,8 @@
 
 import { Product, useAppContext } from "@/providers/context-provider";
 import Image from "next/image";
-import { memo, useCallback, useState, useEffect, useMemo } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { formatPriceRu } from "@/lib/price";
 
 interface StoreItemProps {
   product: Product;
@@ -10,11 +11,13 @@ interface StoreItemProps {
 
 const StoreItem = memo(({ product }: StoreItemProps) => {
   const { state, dispatch } = useAppContext();
-  const cartItem = state.cart.get(product.id);
+
+  // В корзине ключ = product.id, но у вариаций мы подменяем id на variation.id
+  // поэтому берём cartItem по itemToAdd.id ниже.
   const [selectedVariation, setSelectedVariation] = useState<any>(null);
 
   useEffect(() => {
-    if (product.type === "variable" && product.variations && product.variations.length > 0) {
+    if (product.type === "variable" && Array.isArray(product.variations) && product.variations.length > 0) {
       setSelectedVariation(product.variations[0]);
     } else {
       setSelectedVariation(null);
@@ -23,35 +26,45 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
   const itemToAdd = useMemo(() => {
     if (selectedVariation) {
-      const attrs = (selectedVariation?.attributes ?? [])
-        .map((a: any) => a?.option)
-        .filter(Boolean)
-        .join(" × ");
+      const attrs = Array.isArray(selectedVariation.attributes)
+        ? selectedVariation.attributes.map((a: any) => a?.option).filter(Boolean).join(" × ")
+        : "";
 
       return {
         ...product,
-        id: selectedVariation.id,
-        price_html: selectedVariation.price_html,
-        images: selectedVariation.image ? [selectedVariation.image] : (product.images ?? []),
+        id: selectedVariation.id, // важно: в корзине будет id вариации
         variationId: selectedVariation.id,
         selectedAttributes: attrs,
+
+        // ✅ ЧИСЛОВЫЕ цены — чтобы не было "Цена по запросу"
+        price: selectedVariation.price ?? product.price,
+        regular_price: selectedVariation.regular_price ?? product.regular_price,
+        sale_price: selectedVariation.sale_price ?? product.sale_price,
+
+        // fallback
+        price_html: selectedVariation.price_html || product.price_html,
+
+        images: selectedVariation.image ? [selectedVariation.image] : (product.images ?? []),
       };
     }
+
     return product;
   }, [product, selectedVariation]);
 
+  const cartItem = useMemo(() => state.cart.get(itemToAdd.id), [state.cart, itemToAdd.id]);
+
   const handleAdd = useCallback(() => {
-    dispatch({ type: "inc", product: itemToAdd });
-    if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
-      (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("light");
-    }
+    dispatch({ type: "inc", product: itemToAdd as any });
+
+    const tg = (globalThis as any).Telegram?.WebApp;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
   }, [dispatch, itemToAdd]);
 
   const handleRemove = useCallback(() => {
-    dispatch({ type: "dec", product: itemToAdd });
-    if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
-      (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("medium");
-    }
+    dispatch({ type: "dec", product: itemToAdd as any });
+
+    const tg = (globalThis as any).Telegram?.WebApp;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
   }, [dispatch, itemToAdd]);
 
   const handleCardClick = useCallback(() => {
@@ -59,25 +72,17 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
   }, [dispatch, product]);
 
   const imageSrc = useMemo(() => {
-    const img = (itemToAdd as any)?.images?.[0];
+    const img = (itemToAdd as any).images?.[0];
     if (!img) return "/no-image.png";
     if ("thumbnail" in img && img.thumbnail) return img.thumbnail;
     return img.src || "/no-image.png";
   }, [itemToAdd]);
 
-  const imageAlt = (itemToAdd as any)?.images?.[0]?.alt || product.name || "Товар";
+  const imageAlt = (itemToAdd as any).images?.[0]?.alt || product.name || "Товар";
 
   const formattedPrice = useMemo(() => {
-    let raw = (itemToAdd as any).price_html || "";
-    raw = raw.replace(/<[^>]*>/g, "").trim();
-    raw = raw.replace(/₽|руб\.?|&nbsp;/gi, "").trim();
-
-    const match = raw.match(/(\d[\d\s]*)/);
-    if (!match) return "Цена по запросу";
-
-    const clean = match[1].replace(/\s/g, "");
-    const num = Number(clean);
-    return isNaN(num) ? "Цена по запросу" : num.toLocaleString("ru-RU") + " ₽";
+    // ✅ Форматируем по numeric price/sale_price/regular_price, иначе fallback к price_html
+    return formatPriceRu(itemToAdd);
   }, [itemToAdd]);
 
   return (
@@ -92,29 +97,31 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
           loading="lazy"
           unoptimized
         />
+
         <div className="store-product-label mt-3">
           <span className="store-product-title block text-base font-bold text-white">
             {product.name}
-            {"selectedAttributes" in (itemToAdd as any) && (itemToAdd as any).selectedAttributes && (
+
+            {"selectedAttributes" in (itemToAdd as any) && (itemToAdd as any).selectedAttributes ? (
               <span className="block text-sm text-[#00e6cc] mt-1">
                 {(itemToAdd as any).selectedAttributes}
               </span>
-            )}
+            ) : null}
           </span>
+
           <span className="store-product-price block text-2xl font-black text-[#00e6cc] mt-2">
             {formattedPrice}
           </span>
         </div>
       </div>
 
-      {product.type === "variable" && product.variations && product.variations.length > 0 && (
+      {product.type === "variable" && Array.isArray(product.variations) && product.variations.length > 0 && (
         <div className="mt-4 flex flex-wrap gap-3 justify-center">
           {product.variations.map((variation: any) => {
             const isSelected = selectedVariation?.id === variation.id;
-            const attrs = (variation?.attributes ?? [])
-              .map((a: any) => a?.option)
-              .filter(Boolean)
-              .join(" × ");
+            const attrs = Array.isArray(variation.attributes)
+              ? variation.attributes.map((a: any) => a?.option).filter(Boolean).join(" × ")
+              : `Вариант #${variation.id}`;
 
             return (
               <button
@@ -126,7 +133,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                     : "bg-gray-800 text-gray-300 hover:bg-gray-700"
                 }`}
               >
-                {attrs || "Вариант"}
+                {attrs}
               </button>
             );
           })}
@@ -178,4 +185,5 @@ export const StoreItemSkeleton = memo(() => (
 ));
 
 StoreItemSkeleton.displayName = "StoreItemSkeleton";
+
 export default StoreItem;
