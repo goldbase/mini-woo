@@ -1,40 +1,32 @@
 import { NextRequest, NextResponse } from "next/server";
 import WooCommerceRestApi from "@woocommerce/woocommerce-rest-api";
 
+// Убираем edge — переключаем на Node.js runtime
+// export const runtime = "edge"; // УДАЛИТЬ эту строку
+
 const woo = new WooCommerceRestApi({
   url: process.env.WOOCOMMERCE_URL!,
   consumerKey: process.env.WOOCOMMERCE_CONSUMER_KEY!,
   consumerSecret: process.env.WOOCOMMERCE_CONSUMER_SECRET!,
   version: "wc/v3",
-  axiosConfig: {
-    headers: {
-      "User-Agent": "Next.js Mini App",
-    },
-  },
 });
-
-export const runtime = "edge";
 
 export async function GET(request: NextRequest) {
   const params = Object.fromEntries(request.nextUrl.searchParams);
-
-  // Принудительно только опубликованные
-  params.status = "publish";
+  params.status = "publish"; // Только опубликованные
 
   try {
-    const response = await woo.get("products", params);
+    const { data: products } = await woo.get("products", params);
 
-    let products = response.data;
-
-    // Подгрузка вариаций для variable товаров
-    products = await Promise.all(
+    // Подгрузка вариаций (опционально, но полезно)
+    const enrichedProducts = await Promise.all(
       products.map(async (product: any) => {
         if (product.type === "variable" && product.variations?.length > 0) {
           try {
-            const varsRes = await woo.get(`products/${product.id}/variations`);
-            product.variations = varsRes.data;
+            const { data: variations } = await woo.get(`products/${product.id}/variations`);
+            product.variations = variations;
           } catch (e) {
-            console.error(`Variations error for product ${product.id}:`, e);
+            console.error(`Variations fetch error for product ${product.id}:`, e);
             product.variations = [];
           }
         } else {
@@ -44,7 +36,7 @@ export async function GET(request: NextRequest) {
       })
     );
 
-    return NextResponse.json(products, {
+    return NextResponse.json(enrichedProducts, {
       headers: {
         "Cache-Control": "s-maxage=300, stale-while-revalidate=60",
       },
@@ -52,7 +44,7 @@ export async function GET(request: NextRequest) {
   } catch (error: any) {
     console.error("WooCommerce API Error:", error.response?.data || error.message);
     return NextResponse.json(
-      { error: "Failed to fetch products", details: error.response?.data || error.message },
+      { error: "Failed to fetch products", details: error.message },
       { status: 500 }
     );
   }
