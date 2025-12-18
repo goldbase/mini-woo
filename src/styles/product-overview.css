@@ -1,73 +1,165 @@
 .product-overview {
-    display: none;
-    font-family: var(--default-font);
-    background-color: var(--bg-color);
-    transition: opacity var(--page-animation);
-    opacity: 1;
-    min-height: 100vh;
+  display: none;
+  font-family: var(--default-font);
+  background-color: var(--bg-color);
+  transition: opacity var(--page-animation);
+  opacity: 1;
+  min-height: 100vh;
 }
 
 .item-mode .product-overview {
-    display: block;
-    opacity: 1;
+  display: block;
+  opacity: 1;
 }
 
+/* ====== PHOTOS: аккуратный слайдер без огромных картинок ====== */
 .product-photos {
-    width: 100%;
-    overflow-x: visible;
-    overflow-y: hidden;
-    white-space: nowrap;
+  width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  white-space: nowrap;
+
+  scroll-snap-type: x mandatory;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none; /* Firefox */
+  padding: 12px 12px 0;
+}
+.product-photos::-webkit-scrollbar {
+  display: none; /* Chrome/Safari */
 }
 
 .product-photo {
-    width: 100%;
+  display: inline-block;
+  width: 100%;
+  scroll-snap-align: center;
 }
 
+.product-photo img,
+.product-photo picture,
+.product-photo video {
+  width: 100%;
+  max-height: 320px;            /* ключ: ограничиваем высоту */
+  object-fit: contain;          /* чтобы не резало */
+  border-radius: 20px;
+  background: rgba(255,255,255,0.04);
+}
+
+/* на больших экранах чуть выше */
+@media (min-width: 768px) {
+  .product-photo img,
+  .product-photo picture,
+  .product-photo video {
+    max-height: 420px;
+  }
+}
+
+/* ====== LABEL ====== */
 .product-label {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 12px 16px 4px;
+  text-align: center;
 }
 
 .product-title {
-    margin: 8px;
-    font-size: 16px;
-    font-weight: 700;
+  margin: 6px 0 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: #ffffff;
 }
 
 .product-price {
-    margin: 8px;
-    font-weight: 800;
-    white-space: nowrap;
+  margin: 0 0 10px;
+  font-weight: 900;
+  white-space: nowrap;
+  color: var(--accent-color);
+  font-size: 22px;
 }
 
+/* ====== COUNTER ====== */
 .product-counter {
-    width: 48px;
-    height: 32px;
-    padding: 2px 6px;
-    margin: 4px auto;
-    border-radius: 16px;
-    pointer-events: none;
+  width: 48px;
+  height: 32px;
+  padding: 2px 6px;
+  margin: 6px auto 0;
+  border-radius: 16px;
+  pointer-events: none;
 
-    font-family: var(--default-font);
-    font-weight: 700;
-    font-size: 20px;
-    line-height: 30px;
-    text-align: center;
+  font-family: var(--default-font);
+  font-weight: 800;
+  font-size: 18px;
+  line-height: 28px;
+  text-align: center;
 
-    box-sizing: border-box;
-    background-color: var(--hint-color);
+  box-sizing: border-box;
+  background-color: var(--hint-color);
+  color: #0b182f;
 }
 
 .selected .product-counter {
-    background-color: var(--accent-color);
+  background-color: var(--accent-color);
 }
 
+/* ====== DESCRIPTION: читабельно на тёмном фоне ====== */
 .product-description {
-    padding: 16px;
+  padding: 16px 18px 24px;
+  color: #e5e7eb;
+  line-height: 1.7;
+  font-size: 15px;
 }
 
+/* УБИРАЕМ глобальное "center" и одинаковый размер на всё */
 .product-description * {
-    text-align: center;
-    font-size: 14px;
+  text-align: left;
+  font-size: inherit;
+  line-height: inherit;
+  color: inherit;
+}
+
+.product-description p {
+  margin: 0 0 12px;
+}
+
+.product-description strong,
+.product-description b {
+  color: #ffffff;
+  font-weight: 800;
+}
+
+.product-description em {
+  color: #d1d5db;
+}
+
+.product-description ul,
+.product-description ol {
+  margin: 10px 0 14px 18px;
+  padding: 0;
+}
+
+.product-description li {
+  margin: 6px 0;
+}
+
+.product-description a {
+  color: #00e6cc;
+  text-decoration: underline;
+}
+
+.product-description h1,
+.product-description h2,
+.product-description h3,
+.product-description h4 {
+  color: #ffffff;
+  font-weight: 900;
+  margin: 14px 0 10px;
+  line-height: 1.25;
+}
+
+/* Если хочешь — можно немного "карточкой" */
+.product-description {
+  background: rgba(255,255,255,0.03);
+  border: 1px solid rgba(255,255,255,0.06);
+  border-radius: 22px;
+  margin: 14px 12px 24px;
 }
