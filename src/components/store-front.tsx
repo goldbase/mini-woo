@@ -1,79 +1,46 @@
-// src/components/store-front.tsx
 "use client";
 
-import { useEffect, useCallback, useMemo, memo } from "react";
-import StoreItem, { StoreItemSkeleton } from "@/components/store-item";
-import { fetchProducts, useAppContext } from "@/providers/context-provider";
-import StoreCategories from "@/components/store-categories";
-import InfiniteScroll from "@/components/infinite-scroll";
-import dynamic from "next/dynamic";
+import { useAppContext } from "@/providers/context-provider";
+import { memo, useCallback } from "react";
 
-const StoreFrontInner = memo(() => {
-    const { state, dispatch } = useAppContext();
+const categories = [
+  { id: null, name: "Все товары" },
+  { id: 1, name: "Подушки" },
+  { id: 2, name: "Эргономические матрасы" },
+  // Добавь реальные ID из WooCommerce
+];
 
-    // Загрузка товаров при первой загрузке или смене категории
-    const loadProducts = useCallback(() => {
-        // Если товаров нет или выбрана категория — загружаем
-        if (state.products.length === 0 || state.selectedCategory !== null) {
-            fetchProducts(state, dispatch);
-        }
-    }, [state.products.length, state.selectedCategory, dispatch]);
+const StoreCategories = memo(() => {
+  const { state, dispatch } = useAppContext();
 
-    useEffect(() => {
-        loadProducts();
-    }, [loadProducts]);
+  const handleCategory = useCallback((id: number | null) => {
+dispatch({ type: "select-cat", category: id });
+  }, [dispatch]);
 
-    // Скелетоны только при первой загрузке
-    const isInitialLoading = state.loading && state.products.length === 0;
-
-    // Мемоизация списка товаров — избегаем лишних ререндеров при скролле
-    const items = useMemo(() => {
-        return isInitialLoading
-            ? Array(12)
-                  .fill(null)
-                  .map((_, index) => <StoreItemSkeleton key={`skeleton-${index}`} />)
-            : state.products.map((product) => (
-                  <StoreItem key={product.id} product={product} />
-              ));
-    }, [isInitialLoading, state.products]);
-
-    // Подгрузка при скролле
-    const handleLoadMore = useCallback(() => {
-        fetchProducts(state, dispatch);
-    }, [state, dispatch]);
-
-    return (
-        <section className="store-products pb-24"> {/* pb-24 — отступ для нижней панели */}
-            <StoreCategories />
-
-            <div className="grid grid-cols-2 gap-4 px-4">
-                {items}
-            </div>
-
-            <InfiniteScroll
-                callback={handleLoadMore}
-                hasMore={state.hasMore}
-                loading={state.loading}
-            />
-        </section>
-    );
+  return (
+    <div className="flex gap-4 overflow-x-auto pb-4 px-4 scrollbar-hide">
+      {categories.map((cat) => (
+        <button
+          key={cat.id ?? "all"}
+          onClick={() => handleCategory(cat.id)}
+          className={`
+            relative whitespace-nowrap px-6 py-3 rounded-full font-bold text-sm transition-all duration-300
+            ${state.selectedCategory === cat.id
+              ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-2xl scale-105"
+              : "bg-gray-800/70 text-gray-400 hover:bg-gray-700/70 hover:text-white hover:shadow-lg"
+            }
+          `}
+        >
+          {cat.name}
+          {state.selectedCategory === cat.id && (
+            <div className="absolute inset-0 rounded-full shadow-2xl ring-4 ring-[#00e6cc]/30" />
+          )}
+        </button>
+      ))}
+    </div>
+  );
 });
 
-StoreFrontInner.displayName = "StoreFrontInner";
+StoreCategories.displayName = "StoreCategories";
 
-// Полностью клиентский компонент — нет hydration mismatch в Telegram
-export default dynamic(() => Promise.resolve(StoreFrontInner), {
-    ssr: false,
-    loading: () => (
-        <section className="store-products pb-24">
-            <StoreCategories />
-            <div className="grid grid-cols-2 gap-4 px-4">
-                {Array(12)
-                    .fill(null)
-                    .map((_, index) => (
-                        <StoreItemSkeleton key={`initial-skeleton-${index}`} />
-                    ))}
-            </div>
-        </section>
-    ),
-});
+export default StoreCategories;
