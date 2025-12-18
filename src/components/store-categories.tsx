@@ -65,41 +65,49 @@ const StoreCategories = memo(() => {
         return <CategoriesSkeleton />;
     }
 
-    return (
-        <div className="store-categories flex gap-3 overflow-x-auto pb-3 px-4 scrollbar-hide">
-            {/* Кнопка "Все товары" — всегда первая */}
-            <div
-                className={`category-tab whitespace-nowrap px-5 py-2 rounded-full transition-all duration-200 cursor-pointer font-medium ${
-                    isAllSelected
-                        ? "bg-[var(--accent-color)] text-white"
-                        : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                }`}
-                onClick={() => handleSelect(null)}
-            >
-                Все товары
-            </div>
+   return (
+    <div className="flex gap-4 overflow-x-auto pb-4 px-4 scrollbar-hide">
+        {/* "Все товары" */}
+        <button
+            onClick={() => handleSelect(null)}
+            className={`
+                relative whitespace-nowrap px-6 py-3 rounded-full font-bold text-sm transition-all duration-300 shadow-md
+                ${isAllSelected
+                    ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-2xl scale-105"
+                    : "bg-gray-800/70 text-gray-400 hover:bg-gray-700/70 hover:text-white hover:shadow-lg"
+                }
+            `}
+        >
+            Все товары
+            {isAllSelected && (
+                <div className="absolute inset-0 rounded-full ring-4 ring-[#00e6cc]/30 pointer-events-none" />
+            )}
+        </button>
 
-            {/* Остальные категории из WooCommerce */}
-            {state.categories.map((category) => {
-                const isSelected = state.selectedCategory?.id === category.id;
-
-                return (
-                    <div
-                        key={category.id}
-                        className={`category-tab whitespace-nowrap px-5 py-2 rounded-full transition-all duration-200 cursor-pointer font-medium ${
-                            isSelected
-                                ? "bg-[var(--accent-color)] text-white"
-                                : "bg-gray-200 text-gray-700 hover:bg-gray-300"
-                        }`}
-                        onClick={() => handleSelect(category)}
-                    >
-                        {category.name}
-                    </div>
-                );
-            })}
-        </div>
-    );
-});
+        {/* Категории из WooCommerce */}
+        {state.categories.map((category) => {
+            const isSelected = state.selectedCategory?.id === category.id;
+            return (
+                <button
+                    key={category.id}
+                    onClick={() => handleSelect(category)}
+                    className={`
+                        relative whitespace-nowrap px-6 py-3 rounded-full font-bold text-sm transition-all duration-300 shadow-md
+                        ${isSelected
+                            ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-2xl scale-105"
+                            : "bg-gray-800/70 text-gray-400 hover:bg-gray-700/70 hover:text-white hover:shadow-lg"
+                        }
+                    `}
+                >
+                    {category.name}
+                    {isSelected && (
+                        <div className="absolute inset-0 rounded-full ring-4 ring-[#00e6cc]/30 pointer-events-none" />
+                    )}
+                </button>
+            );
+        })}
+    </div>
+);
 
 StoreCategories.displayName = "StoreCategories";
 
