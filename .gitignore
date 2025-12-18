@@ -33,3 +33,11 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+.htaccess
+
+# server-only / deploy
+.env.production
+ecosystem.config.js
+index.html
+404.html
+502.html

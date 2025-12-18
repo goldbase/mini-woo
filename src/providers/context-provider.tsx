@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-type Mode = "storefront" | "order" | "item";
+type Mode = "storefront" | "order" | "item" | "checkout";
 
 export interface Product {
   id: number;
@@ -22,13 +22,8 @@ export interface Product {
   variations?: Array<{
     id: number;
     price_html: string;
-    attributes: Array<{
-      name: string;
-      option: string;
-    }>;
-    image?: {
-      src: string;
-    };
+    attributes: Array<{ name: string; option: string }>;
+    image?: { src: string };
   }>;
 }
 
@@ -47,6 +42,8 @@ type Action =
   | { type: "mode"; mode: Mode }
   | { type: "storefront" }
   | { type: "order" }
+  | { type: "checkout" }
+  | { type: "success" }
   | { type: "item"; product: Product }
   | { type: "loading"; loading?: boolean }
   | { type: "products"; products: Product[]; hasMore: boolean; page: number; categoryId?: number }
@@ -76,25 +73,34 @@ const StateContext = React.createContext<{ state: State; dispatch: Dispatch } | 
 
 function contextReducer(state: State, action: Action): State {
   switch (action.type) {
-    case "mode": {
+    case "mode":
       return { ...state, mode: action.mode };
-    }
+
     case "storefront":
-    case "order": {
+    case "order":
       return { ...state, mode: action.type };
-    }
-    case "item": {
+
+    case "checkout":
+      return { ...state, mode: "checkout" };
+
+    case "success":
+      return {
+        ...state,
+        mode: "storefront",
+        cart: new Map(),
+        comment: "",
+      };
+
+    case "item":
       return { ...state, selectedProduct: action.product, mode: "item" };
-    }
-    case "loading": {
+
+    case "loading":
       return { ...state, loading: action.loading ?? true };
-    }
+
     case "products": {
-      // Игнорируем только если categoryId явно передан и не совпадает с текущим
       if (action.categoryId !== undefined && state.selectedCategory?.id !== action.categoryId) {
         return state;
       }
-
       return {
         ...state,
         products: state.page === 0 ? action.products : [...state.products, ...action.products],
@@ -103,9 +109,10 @@ function contextReducer(state: State, action: Action): State {
         hasMore: action.hasMore,
       };
     }
-    case "categories": {
+
+    case "categories":
       return { ...state, categories: action.categories };
-    }
+
     case "select-cat": {
       const isSameCategory = state.selectedCategory?.id === action.category?.id;
       return {
@@ -117,36 +124,39 @@ function contextReducer(state: State, action: Action): State {
         hasMore: true,
       };
     }
+
     case "inc": {
       const current = state.cart.get(action.product.id) || { product: action.product, count: 0 };
       const newCart = new Map(state.cart);
       newCart.set(action.product.id, { ...current, count: current.count + 1 });
       return { ...state, cart: newCart };
     }
+
     case "dec": {
       const current = state.cart.get(action.product.id);
+      const newCart = new Map(state.cart);
+
       if (!current || current.count <= 1) {
-        const newCart = new Map(state.cart);
         newCart.delete(action.product.id);
         return { ...state, cart: newCart };
       }
-      const newCart = new Map(state.cart);
+
       newCart.set(action.product.id, { ...current, count: current.count - 1 });
       return { ...state, cart: newCart };
     }
-    case "comment": {
+
+    case "comment":
       return { ...state, comment: action.comment };
-    }
-    default: {
+
+    default:
       return state;
-    }
   }
 }
 
 function ContextProvider({ children }: { children: React.ReactNode }) {
   const init: State = {
     mode: "storefront",
-    loading: false, // ✅ ВАЖНО: иначе первая загрузка может не стартовать
+    loading: false,
     products: [],
     page: 0,
     hasMore: true,
@@ -157,37 +167,31 @@ function ContextProvider({ children }: { children: React.ReactNode }) {
   };
 
   const [state, dispatch] = React.useReducer(contextReducer, init);
-  const context = { state, dispatch };
 
-  return <StateContext.Provider value={context}>{children}</StateContext.Provider>;
+  return <StateContext.Provider value={{ state, dispatch }}>{children}</StateContext.Provider>;
 }
 
 function useAppContext() {
   const context = React.useContext(StateContext);
-  if (context === undefined) {
-    throw new Error("useAppContext must be used within a ContextProvider");
-  }
+  if (!context) throw new Error("useAppContext must be used within a ContextProvider");
   return context;
 }
 
 const PER_PAGE = 12;
 
 function fetchProducts(state: State, dispatch: Dispatch) {
-  dispatch({ type: "loading", loading: true }); // ✅ явно включаем loading
+  dispatch({ type: "loading", loading: true });
 
   const page = state.page + 1;
   const categoryId = state.selectedCategory?.id;
 
   let url = `/api/products?per_page=${PER_PAGE}&page=${page}&status=publish`;
-  if (categoryId) {
-    url += `&category=${categoryId}`;
-  }
+  if (categoryId) url += `&category=${categoryId}`;
 
   fetch(url)
     .then(async (res) => {
       if (!res.ok) {
-        const text = await res.text();
-        console.error("[fetchProducts] API error:", res.status, text);
+        console.error("[fetchProducts] API error:", res.status, await res.text());
         dispatch({ type: "loading", loading: false });
         return null;
       }
@@ -195,15 +199,8 @@ function fetchProducts(state: State, dispatch: Dispatch) {
     })
     .then((products) => {
       if (!products) return;
-      console.log("[fetchProducts] Received:", products.length, "products");
       const hasMore = products.length === PER_PAGE;
-      dispatch({
-        type: "products",
-        products,
-        page,
-        hasMore,
-        categoryId,
-      });
+      dispatch({ type: "products", products, page, hasMore, categoryId });
     })
     .catch((err) => {
       console.error("[fetchProducts] Fetch error:", err);
@@ -215,7 +212,7 @@ function fetchCategories(dispatch: Dispatch) {
   fetch("/api/categories?per_page=100")
     .then(async (res) => {
       if (!res.ok) {
-        console.error("Categories API error:", res.status);
+        console.error("Categories API error:", res.status, await res.text());
         return null;
       }
       return res.json();
@@ -228,3 +225,4 @@ function fetchCategories(dispatch: Dispatch) {
 }
 
 export { ContextProvider, useAppContext, fetchProducts, fetchCategories };
+

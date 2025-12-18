@@ -1,4 +1,3 @@
-// next.config.mjs
 import withNextIntl from 'next-intl/plugin';
 
 const nextIntlPlugin = withNextIntl('./i18n.ts');

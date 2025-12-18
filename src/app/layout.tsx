@@ -1,4 +1,5 @@
 // src/app/layout.tsx
+<link rel="icon" href="/favicon.ico" sizes="any" />
 import './globals.css';
 import { TelegramProvider } from "@/providers/telegram-provider";
 import { ContextProvider } from "@/providers/context-provider";
