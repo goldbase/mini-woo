@@ -65,28 +65,31 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
 
-    // Чистое форматирование цены (убирает "008 381" и любой мусор)
+    // Чистое форматирование цены WooCommerce (убирает любой мусор, включая "008 381")
     const formattedPrice = useMemo(() => {
         let raw = itemToAdd.price_html || "";
 
-        // Убираем HTML
+        // Убираем все HTML теги
         raw = raw.replace(/<[^>]*>/g, "").trim();
 
-        // Убираем валюту и лишние символы
+        // Убираем валюту, неразрывные пробелы и текст после числа
         raw = raw.replace(/₽|руб\.?|&nbsp;/gi, "").trim();
 
-        // Берём первое число (игнорируем всё после)
-        const match = raw.match(/(\d[\d\s]*)/);
+        // Берём только первое корректное число, игнорируем остаток
+        const match = raw.match(/\d{1,3}(?:[\s]\d{3})*|\d+/);
         if (!match) return "Цена по запросу";
 
-        const clean = match[1].replace(/\s/g, "");
+        const clean = match[0].replace(/\s/g, "");
         const num = Number(clean);
 
         return isNaN(num) ? "Цена по запросу" : num.toLocaleString("ru-RU") + " ₽";
     }, [itemToAdd.price_html]);
 
     // Type guard для selectedAttributes
-    const hasSelectedAttributes = "selectedAttributes" in itemToAdd && typeof itemToAdd.selectedAttributes === "string" && itemToAdd.selectedAttributes.length > 0;
+    const hasSelectedAttributes =
+        "selectedAttributes" in itemToAdd &&
+        typeof itemToAdd.selectedAttributes === "string" &&
+        itemToAdd.selectedAttributes.length > 0;
 
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
@@ -160,9 +163,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                     onClick={handleAdd}
                     className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
                 >
-                    <span className="block">
-                        {cartItem ? "Ещё" : "В корзину"}
-                    </span>
+                    <span className="block">{cartItem ? "Ещё" : "В корзину"}</span>
                 </button>
             </div>
         </div>
