@@ -1,3 +1,4 @@
+// src/components/store-item.tsx
 "use client";
 
 import { Product, useAppContext } from "@/providers/context-provider";
@@ -64,25 +65,28 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
 
-    // Безопасное и чистое форматирование цены WooCommerce
+    // Чистое форматирование цены (убирает "008 381" и любой мусор)
     const formattedPrice = useMemo(() => {
         let raw = itemToAdd.price_html || "";
 
-        // Убираем все HTML теги
+        // Убираем HTML
         raw = raw.replace(/<[^>]*>/g, "").trim();
 
-        // Убираем валюту и неразрывные пробелы
-        raw = raw.replace(/&nbsp;/g, " ").replace(/₽/g, "").trim();
+        // Убираем валюту и лишние символы
+        raw = raw.replace(/₽|руб\.?|&nbsp;/gi, "").trim();
 
-        // Ищем первое число (основная цена)
-        const match = raw.match(/(\d{1,3}(?:\s\d{3})*(?:\.\d+)?)/);
+        // Берём первое число (игнорируем всё после)
+        const match = raw.match(/(\d[\d\s]*)/);
         if (!match) return "Цена по запросу";
 
-        const clean = match[1].replace(/\s/g, ""); // убираем пробелы
+        const clean = match[1].replace(/\s/g, "");
         const num = Number(clean);
 
         return isNaN(num) ? "Цена по запросу" : num.toLocaleString("ru-RU") + " ₽";
     }, [itemToAdd.price_html]);
+
+    // Type guard для selectedAttributes
+    const hasSelectedAttributes = "selectedAttributes" in itemToAdd && typeof itemToAdd.selectedAttributes === "string" && itemToAdd.selectedAttributes.length > 0;
 
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
@@ -99,7 +103,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {"selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes && (
+                        {hasSelectedAttributes && (
                             <span className="block text-sm text-[#00e6cc] mt-1">
                                 {itemToAdd.selectedAttributes}
                             </span>
@@ -156,7 +160,9 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                     onClick={handleAdd}
                     className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
                 >
-                    <span className="block">{cartItem ? "Ещё" : "В корзину"}</span>
+                    <span className="block">
+                        {cartItem ? "Ещё" : "В корзину"}
+                    </span>
                 </button>
             </div>
         </div>
