@@ -13,9 +13,15 @@ const categories = [
 const StoreCategories = memo(() => {
   const { state, dispatch } = useAppContext();
 
-  const handleCategory = useCallback((id: number | null) => {
-dispatch({ type: "select-cat", category: id });
-  }, [dispatch]);
+const handleCategory = useCallback((id: number | null) => {
+    if (id === null) {
+        dispatch({ type: "select-cat", category: null });
+    } else {
+        // Находим объект категории по id (state.categories уже загружены)
+        const category = state.categories.find(cat => cat.id === id);
+        dispatch({ type: "select-cat", category: category || null });
+    }
+}, [dispatch, state.categories]);
 
   return (
     <div className="flex gap-4 overflow-x-auto pb-4 px-4 scrollbar-hide">
