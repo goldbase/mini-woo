@@ -1,20 +1,14 @@
-// src/components/store-item.tsx
 "use client";
-
 import { Product, useAppContext } from "@/providers/context-provider";
 import Image from "next/image";
 import { memo, useCallback, useState, useEffect, useMemo } from "react";
-
 interface StoreItemProps {
     product: Product;
 }
-
 const StoreItem = memo(({ product }: StoreItemProps) => {
     const { state, dispatch } = useAppContext();
     const cartItem = state.cart.get(product.id);
-
     const [selectedVariation, setSelectedVariation] = useState<any>(null);
-
     useEffect(() => {
         if (product.type === "variable" && product.variations && product.variations.length > 0) {
             setSelectedVariation(product.variations[0]);
@@ -22,7 +16,6 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
             setSelectedVariation(null);
         }
     }, [product.type, product.variations]);
-
     const itemToAdd = useMemo(() => {
         if (selectedVariation) {
             const attrs = selectedVariation.attributes.map((a: any) => a.option).join(" × ");
@@ -37,60 +30,42 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         }
         return product;
     }, [product, selectedVariation]);
-
     const handleAdd = useCallback(() => {
         dispatch({ type: "inc", product: itemToAdd });
         if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
             (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("light");
         }
     }, [dispatch, itemToAdd]);
-
     const handleRemove = useCallback(() => {
         dispatch({ type: "dec", product: itemToAdd });
         if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
             (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("medium");
         }
     }, [dispatch, itemToAdd]);
-
     const handleCardClick = useCallback(() => {
         dispatch({ type: "item", product });
     }, [dispatch, product]);
-
     const imageSrc = useMemo(() => {
         const img = itemToAdd.images?.[0];
         if (!img) return "/no-image.png";
         if ("thumbnail" in img && img.thumbnail) return img.thumbnail;
         return img.src || "/no-image.png";
     }, [itemToAdd.images]);
-
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
-
-    // Чистое форматирование цены WooCommerce (убирает любой мусор, включая "008 381")
+    // Чистое форматирование цены WooCommerce (убирает любой мусор)
     const formattedPrice = useMemo(() => {
         let raw = itemToAdd.price_html || "";
-
-        // Убираем все HTML теги
+        // Убираем HTML
         raw = raw.replace(/<[^>]*>/g, "").trim();
-
-        // Убираем валюту, неразрывные пробелы и текст после числа
+        // Убираем валюту и лишние символы
         raw = raw.replace(/₽|руб\.?|&nbsp;/gi, "").trim();
-
-        // Берём только первое корректное число, игнорируем остаток
-        const match = raw.match(/\d{1,3}(?:[\s]\d{3})*|\d+/);
+        // Берём первое число (игнорируем всё после)
+        const match = raw.match(/(\d[\d\s]*)/);
         if (!match) return "Цена по запросу";
-
-        const clean = match[0].replace(/\s/g, "");
+        const clean = match[1].replace(/\s/g, "");
         const num = Number(clean);
-
         return isNaN(num) ? "Цена по запросу" : num.toLocaleString("ru-RU") + " ₽";
     }, [itemToAdd.price_html]);
-
-    // Type guard для selectedAttributes
-    const hasSelectedAttributes =
-        "selectedAttributes" in itemToAdd &&
-        typeof itemToAdd.selectedAttributes === "string" &&
-        itemToAdd.selectedAttributes.length > 0;
-
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
             <div onClick={handleCardClick} className="cursor-pointer" role="button">
@@ -106,7 +81,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {hasSelectedAttributes && (
+                        {"selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes && (
                             <span className="block text-sm text-[#00e6cc] mt-1">
                                 {itemToAdd.selectedAttributes}
                             </span>
@@ -117,13 +92,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                     </span>
                 </div>
             </div>
-
             {product.type === "variable" && product.variations && product.variations.length > 0 && (
                 <div className="mt-4 flex flex-wrap gap-3 justify-center">
                     {product.variations.map((variation: any) => {
                         const isSelected = selectedVariation?.id === variation.id;
                         const attrs = variation.attributes.map((a: any) => a.option).join(" × ");
-
                         return (
                             <button
                                 key={variation.id}
@@ -140,13 +113,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                     })}
                 </div>
             )}
-
             {cartItem && cartItem.count > 0 && (
                 <div className="store-product-counter text-2xl font-black text-[#00e6cc] mt-3 text-center">
                     {cartItem.count}
                 </div>
             )}
-
             <div className="store-product-buttons flex justify-between items-center mt-5 gap-4">
                 {cartItem && cartItem.count > 0 ? (
                     <button
@@ -158,7 +129,6 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                 ) : (
                     <div className="w-14 h-14" />
                 )}
-
                 <button
                     onClick={handleAdd}
                     className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
@@ -169,9 +139,7 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         </div>
     );
 });
-
 StoreItem.displayName = "StoreItem";
-
 export const StoreItemSkeleton = memo(() => (
     <div className="store-product animate-pulse">
         <div className="bg-gray-700 rounded-2xl w-full aspect-square" />
@@ -184,7 +152,5 @@ export const StoreItemSkeleton = memo(() => (
         </div>
     </div>
 ));
-
 StoreItemSkeleton.displayName = "StoreItemSkeleton";
-
 export default StoreItem;
