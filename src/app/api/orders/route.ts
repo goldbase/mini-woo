@@ -55,7 +55,7 @@ export async function POST(request: NextRequest) {
       order.order_key,
       telegramCurrency.code,
       prices,
-      payload.shippingZone ?? undefined  // Явно передаём undefined, если не задан
+      payload.shippingZone ?? 1  // Дефолтная зона доставки = 1, если не передана
     );
 
     // Уведомление менеджеру в Telegram
