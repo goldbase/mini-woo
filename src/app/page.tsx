@@ -55,6 +55,7 @@ export default function Home() {
             if (invoiceSupported && result.invoice_link) {
                 webApp.openInvoice(result.invoice_link, (status) => {
                     webApp.MainButton.hideProgress();
+
                     if (status === "paid") {
                         webApp.HapticFeedback.notificationOccurred("success");
                         webApp.showAlert("Оплата прошла успешно! Заказ оформлен.");
@@ -79,24 +80,27 @@ export default function Home() {
         }
     }, [webApp, user, state.cart, state.comment, state.shippingZone]);
 
-    // Главный useEffect для MainButton и BackButton
+    // ===== MainButton + BackButton =====
     useEffect(() => {
         if (!webApp) return;
 
-        const mainButtonText = state.mode === "order" ? "ОПЛАТИТЬ ЗАКАЗ" : "ПЕРЕЙТИ К ЗАКАЗУ";
+        const isOrderMode = state.mode === "order";
 
         webApp.MainButton.setParams({
-            text: mainButtonText,
+            text: isOrderMode ? "ОПЛАТИТЬ ЗАКАЗ" : "ПЕРЕЙТИ К ЗАКАЗУ",
             color: "#00d0b8",
             text_color: "#0b182f",
         });
 
-        const mainCallback = state.mode === "order" ? handleCheckout : () => dispatch({ type: "order" });
+        const mainCallback = isOrderMode
+            ? handleCheckout
+            : () => dispatch({ type: "order" });
+
         webApp.MainButton.onClick(mainCallback);
 
         let backCallback: (() => void) | null = null;
 
-        // BackButton только если версия ≥7.2
+        // BackButton поддерживается с версии 7.2
         if (webApp.isVersionAtLeast("7.2")) {
             backCallback = () => dispatch({ type: "storefront" });
             webApp.BackButton.onClick(backCallback);
@@ -114,9 +118,9 @@ export default function Home() {
                 webApp.BackButton.offClick(backCallback);
             }
         };
-    }, [webApp, state.mode, handleCheckout]);
+    }, [webApp, state.mode, handleCheckout, dispatch]);
 
-    // Отдельный useEffect для ClosingConfirmation (поддерживается с версии 7.0)
+    // ===== Closing confirmation (с версии 7.0) =====
     useEffect(() => {
         if (!webApp || !webApp.isVersionAtLeast("7.0")) return;
 

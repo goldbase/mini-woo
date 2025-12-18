@@ -16,7 +16,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
     const [selectedVariation, setSelectedVariation] = useState<any>(null);
 
     useEffect(() => {
-        if (product.type === "variable" && product.variations && product.variations.length > 0) {
+        if (
+            product.type === "variable" &&
+            product.variations &&
+            product.variations.length > 0
+        ) {
             setSelectedVariation(product.variations[0]);
         } else {
             setSelectedVariation(null);
@@ -25,12 +29,17 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const itemToAdd = useMemo(() => {
         if (selectedVariation) {
-            const attrs = selectedVariation.attributes.map((a: any) => a.option).join(" × ");
+            const attrs = selectedVariation.attributes
+                .map((a: any) => a.option)
+                .join(" × ");
+
             return {
                 ...product,
                 id: selectedVariation.id,
                 price_html: selectedVariation.price_html,
-                images: selectedVariation.image ? [selectedVariation.image] : product.images,
+                images: selectedVariation.image
+                    ? [selectedVariation.image]
+                    : product.images,
                 variationId: selectedVariation.id,
                 selectedAttributes: attrs,
             };
@@ -40,16 +49,16 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const handleAdd = useCallback(() => {
         dispatch({ type: "inc", product: itemToAdd });
-        if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
-            (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("light");
-        }
+        (globalThis as any)?.Telegram?.WebApp?.HapticFeedback?.impactOccurred(
+            "light"
+        );
     }, [dispatch, itemToAdd]);
 
     const handleRemove = useCallback(() => {
         dispatch({ type: "dec", product: itemToAdd });
-        if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
-            (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("medium");
-        }
+        (globalThis as any)?.Telegram?.WebApp?.HapticFeedback?.impactOccurred(
+            "medium"
+        );
     }, [dispatch, itemToAdd]);
 
     const handleCardClick = useCallback(() => {
@@ -65,17 +74,66 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
     const imageAlt = itemToAdd.images?.[0]?.alt || product.name || "Товар";
 
+    // ===== БЕЗОПАСНОЕ ФОРМАТИРОВАНИЕ ЦЕНЫ =====
     const formattedPrice = useMemo(() => {
-        const raw = itemToAdd.price_html || "";
+        // 1. Если выбрана вариация — берём её цену
+        if (selectedVariation?.price_html) {
+            const raw = selectedVariation.price_html ?? "";
+            if (!raw) return "Цена по запросу";
+
+            const clean = raw.replace(/<[^>]*>/g, "").trim();
+            const num = Number(clean.replace(/[^0-9.-]+/g, ""));
+            return isNaN(num) ? clean : `${num.toLocaleString("ru-RU")} ₽`;
+        }
+
+        // 2. Если вариативный товар — считаем диапазон цен
+        if (
+            product.type === "variable" &&
+            product.variations &&
+            product.variations.length > 0
+        ) {
+            const prices = product.variations
+                .map((v: any) => {
+                    const raw = v.price_html ?? "";
+                    const clean = raw
+                        .replace(/<[^>]*>/g, "")
+                        .replace(/[^0-9.-]+/g, "");
+                    const num = Number(clean);
+                    return isNaN(num) ? null : num;
+                })
+                .filter((v: number | null): v is number => v !== null);
+
+            if (prices.length === 0) return "Цена по запросу";
+
+            const min = Math.min(...prices);
+            const max = Math.max(...prices);
+
+            if (min === max) {
+                return `${min.toLocaleString("ru-RU")} ₽`;
+            }
+
+            return `от ${min.toLocaleString("ru-RU")} до ${max.toLocaleString(
+                "ru-RU"
+            )} ₽`;
+        }
+
+        // 3. Простой товар
+        const raw = product.price_html ?? "";
+        if (!raw) return "Цена по запросу";
+
         const clean = raw.replace(/<[^>]*>/g, "").trim();
-        if (clean === "") return "Цена по запросу";
         const num = Number(clean.replace(/[^0-9.-]+/g, ""));
-        return isNaN(num) ? clean : num.toLocaleString("ru-RU");
-    }, [itemToAdd.price_html]);
+        return isNaN(num) ? clean : `${num.toLocaleString("ru-RU")} ₽`;
+    }, [product, selectedVariation]);
+    // ========================================
 
     return (
         <div className={`store-product ${cartItem ? "selected" : ""}`}>
-            <div onClick={handleCardClick} className="cursor-pointer" role="button">
+            <div
+                onClick={handleCardClick}
+                className="cursor-pointer"
+                role="button"
+            >
                 <Image
                     src={imageSrc}
                     alt={imageAlt}
@@ -85,43 +143,53 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
                     loading="lazy"
                     unoptimized
                 />
+
                 <div className="store-product-label mt-3">
                     <span className="store-product-title block text-base font-bold text-white">
                         {product.name}
-                        {"selectedAttributes" in itemToAdd && itemToAdd.selectedAttributes && (
-                            <span className="block text-sm text-[#00e6cc] mt-1">
-                                {itemToAdd.selectedAttributes}
-                            </span>
-                        )}
+                        {"selectedAttributes" in itemToAdd &&
+                            itemToAdd.selectedAttributes && (
+                                <span className="block text-sm text-[#00e6cc] mt-1">
+                                    {itemToAdd.selectedAttributes}
+                                </span>
+                            )}
                     </span>
+
                     <span className="store-product-price block text-2xl font-black text-[#00e6cc] mt-2">
-                        {formattedPrice} ₽
+                        {formattedPrice}
                     </span>
                 </div>
             </div>
 
-            {product.type === "variable" && product.variations && product.variations.length > 0 && (
-                <div className="mt-4 flex flex-wrap gap-3 justify-center">
-                    {product.variations.map((variation: any) => {
-                        const isSelected = selectedVariation?.id === variation.id;
-                        const attrs = variation.attributes.map((a: any) => a.option).join(" × ");
+            {product.type === "variable" &&
+                product.variations &&
+                product.variations.length > 0 && (
+                    <div className="mt-4 flex flex-wrap gap-3 justify-center">
+                        {product.variations.map((variation: any) => {
+                            const isSelected =
+                                selectedVariation?.id === variation.id;
+                            const attrs = variation.attributes
+                                .map((a: any) => a.option)
+                                .join(" × ");
 
-                        return (
-                            <button
-                                key={variation.id}
-                                onClick={() => setSelectedVariation(variation)}
-                                className={`px-6 py-3 rounded-full text-sm font-bold transition-all duration-300 ${
-                                    isSelected
-                                        ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-lg"
-                                        : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                                }`}
-                            >
-                                {attrs}
-                            </button>
-                        );
-                    })}
-                </div>
-            )}
+                            return (
+                                <button
+                                    key={variation.id}
+                                    onClick={() =>
+                                        setSelectedVariation(variation)
+                                    }
+                                    className={`px-6 py-3 rounded-full text-sm font-bold transition-all duration-300 ${
+                                        isSelected
+                                            ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-lg"
+                                            : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                                    }`}
+                                >
+                                    {attrs}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
 
             {cartItem && cartItem.count > 0 && (
                 <div className="store-product-counter text-2xl font-black text-[#00e6cc] mt-3 text-center">
@@ -143,11 +211,9 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
 
                 <button
                     onClick={handleAdd}
-                    className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
+                    className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:scale-105 transition-all duration-300"
                 >
-                    <span className="block">
-                        {cartItem ? "Ещё" : "В корзину"}
-                    </span>
+                    {cartItem ? "Ещё" : "В корзину"}
                 </button>
             </div>
         </div>
@@ -163,7 +229,7 @@ export const StoreItemSkeleton = memo(() => (
             <div className="bg-gray-700 h-5 rounded w-4/5" />
             <div className="bg-gray-700 h-8 rounded w-3/5" />
         </div>
-        <div className="mt-6 flex justify-end">
+        <div className="mt-6">
             <div className="bg-gray-700 h-16 w-full rounded-3xl" />
         </div>
     </div>
