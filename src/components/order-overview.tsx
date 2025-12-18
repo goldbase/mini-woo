@@ -7,7 +7,7 @@ import { memo } from "react";
 const OrderOverview = memo(() => {
     const { state, dispatch } = useAppContext();
 
-    // Итоговая сумма (безопасно)
+    // Итоговая сумма (безопасный расчёт)
     const total = Array.from(state.cart.values()).reduce((sum, item) => {
         const raw = item.product.price_html || "";
         const clean = raw.replace(/<[^>]*>/g, "").trim();
@@ -33,7 +33,7 @@ const OrderOverview = memo(() => {
         <section className="order-overview px-6 py-8 bg-gray-900/50 backdrop-blur-lg rounded-3xl mx-4 mt-6">
             <div className="flex justify-between items-center mb-6">
                 <h2 className="text-3xl font-black text-white">Ваш заказ</h2>
-                <span
+                <span 
                     className="text-[#00e6cc] text-lg cursor-pointer hover:underline"
                     onClick={() => dispatch({ type: "storefront" })}
                 >
