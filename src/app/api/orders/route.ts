@@ -81,9 +81,9 @@ export async function POST(request: NextRequest) {
   } catch (error: any) {
     console.error("[/api/orders] Error:", error);
 
-    if (error instanceof z.ZodError) {
+   if (error instanceof z.ZodError) {
       return NextResponse.json(
-        { error: "Invalid request data", details: error.errors },
+        { error: "Invalid request data", details: error.issues }, // issues вместо errors
         { status: 400 }
       );
     }
