@@ -3,68 +3,106 @@
 import { Product, useAppContext } from "@/providers/context-provider";
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
-import { formatPriceRu } from "@/lib/price";
+
+type AnyVariation = {
+  id: number;
+  price?: string;
+  regular_price?: string;
+  sale_price?: string;
+  price_html?: string;
+  attributes?: Array<{ name: string; option: string }>;
+  image?: { src: string; alt?: string; id?: number };
+};
 
 interface StoreItemProps {
   product: Product;
 }
 
+function parsePriceToNumber(rawHtmlOrText: string): number | null {
+  if (!rawHtmlOrText) return null;
+
+  // убираем html
+  let raw = rawHtmlOrText.replace(/<[^>]*>/g, " ").trim();
+
+  // берём первое число, допускаем пробелы/точки/запятые
+  const match = raw.match(/(\d[\d\s.,]*)/);
+  if (!match) return null;
+
+  // чистим: убираем пробелы, запятую -> точка
+  const cleaned = match[1].replace(/\s/g, "").replace(/,/g, ".");
+  const num = Number.parseFloat(cleaned);
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatRub(value: number | null): string {
+  if (value === null) return "Цена по запросу";
+  return `${value.toLocaleString("ru-RU")} ₽`;
+}
+
 const StoreItem = memo(({ product }: StoreItemProps) => {
   const { state, dispatch } = useAppContext();
+  const cartItem = state.cart.get(product.id);
 
-  // В корзине ключ = product.id, но у вариаций мы подменяем id на variation.id
-  // поэтому берём cartItem по itemToAdd.id ниже.
-  const [selectedVariation, setSelectedVariation] = useState<any>(null);
+  const [selectedVariation, setSelectedVariation] = useState<AnyVariation | null>(null);
 
   useEffect(() => {
-    if (product.type === "variable" && Array.isArray(product.variations) && product.variations.length > 0) {
-      setSelectedVariation(product.variations[0]);
+    if (product.type === "variable" && product.variations && product.variations.length > 0) {
+      setSelectedVariation(product.variations[0] as any);
     } else {
       setSelectedVariation(null);
     }
   }, [product.type, product.variations]);
 
+  const selectedAttrs = useMemo(() => {
+    if (!selectedVariation?.attributes?.length) return "";
+    return selectedVariation.attributes.map((a) => a.option).join(" × ");
+  }, [selectedVariation]);
+
+  // что именно кладём в корзину
   const itemToAdd = useMemo(() => {
     if (selectedVariation) {
-      const attrs = Array.isArray(selectedVariation.attributes)
-        ? selectedVariation.attributes.map((a: any) => a?.option).filter(Boolean).join(" × ")
-        : "";
+      const v = selectedVariation;
+
+      const images =
+        v.image?.src
+          ? [
+              {
+                src: v.image.src,
+                alt: v.image.alt,
+                id: (v.image as any).id,
+              },
+            ]
+          : product.images;
 
       return {
         ...product,
-        id: selectedVariation.id, // важно: в корзине будет id вариации
-        variationId: selectedVariation.id,
-        selectedAttributes: attrs,
-
-        // ✅ ЧИСЛОВЫЕ цены — чтобы не было "Цена по запросу"
-        price: selectedVariation.price ?? product.price,
-        regular_price: selectedVariation.regular_price ?? product.regular_price,
-        sale_price: selectedVariation.sale_price ?? product.sale_price,
-
-        // fallback
-        price_html: selectedVariation.price_html || product.price_html,
-
-        images: selectedVariation.image ? [selectedVariation.image] : (product.images ?? []),
-      };
+        // важное: product.id оставляем как есть для key/cart map,
+        // а variationId кладём отдельно
+        variationId: v.id,
+        price: v.price ?? product.price,
+        regular_price: v.regular_price ?? product.regular_price,
+        sale_price: v.sale_price ?? product.sale_price,
+        price_html: v.price_html ?? product.price_html,
+        images,
+        selectedAttributes: selectedAttrs,
+      } as any;
     }
 
-    return product;
-  }, [product, selectedVariation]);
-
-  const cartItem = useMemo(() => state.cart.get(itemToAdd.id), [state.cart, itemToAdd.id]);
+    return product as any;
+  }, [product, selectedVariation, selectedAttrs]);
 
   const handleAdd = useCallback(() => {
-    dispatch({ type: "inc", product: itemToAdd as any });
-
-    const tg = (globalThis as any).Telegram?.WebApp;
-    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+    dispatch({ type: "inc", product: itemToAdd });
+    if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
+      (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("light");
+    }
   }, [dispatch, itemToAdd]);
 
   const handleRemove = useCallback(() => {
-    dispatch({ type: "dec", product: itemToAdd as any });
-
-    const tg = (globalThis as any).Telegram?.WebApp;
-    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+    dispatch({ type: "dec", product: itemToAdd });
+    if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
+      (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("medium");
+    }
   }, [dispatch, itemToAdd]);
 
   const handleCardClick = useCallback(() => {
@@ -72,18 +110,33 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
   }, [dispatch, product]);
 
   const imageSrc = useMemo(() => {
-    const img = (itemToAdd as any).images?.[0];
-    if (!img) return "/no-image.png";
-    if ("thumbnail" in img && img.thumbnail) return img.thumbnail;
-    return img.src || "/no-image.png";
-  }, [itemToAdd]);
+    const img = itemToAdd.images?.[0];
+    if (!img?.src) return "/no-image.png";
 
-  const imageAlt = (itemToAdd as any).images?.[0]?.alt || product.name || "Товар";
+    // cache-busting: если меняешь картинку на том же URL — добавляем v=
+    const v =
+      (img as any).id ??
+      (selectedVariation?.id ? `var${selectedVariation.id}` : `p${product.id}`);
+
+    return `${img.src}${img.src.includes("?") ? "&" : "?"}v=${encodeURIComponent(String(v))}`;
+  }, [itemToAdd.images, selectedVariation?.id, product.id]);
+
+  const imageAlt = (itemToAdd.images?.[0] as any)?.alt || product.name || "Товар";
 
   const formattedPrice = useMemo(() => {
-    // ✅ Форматируем по numeric price/sale_price/regular_price, иначе fallback к price_html
-    return formatPriceRu(itemToAdd);
-  }, [itemToAdd]);
+    // приоритет: явные price поля, потом price_html
+    const raw =
+      (itemToAdd.sale_price && itemToAdd.sale_price !== "0" ? itemToAdd.sale_price : "") ||
+      itemToAdd.price ||
+      itemToAdd.regular_price ||
+      itemToAdd.price_html ||
+      "";
+
+    const num = parsePriceToNumber(raw);
+    return formatRub(num);
+  }, [itemToAdd.sale_price, itemToAdd.price, itemToAdd.regular_price, itemToAdd.price_html]);
+
+  const showVariations = product.type === "variable" && product.variations && product.variations.length > 0;
 
   return (
     <div className={`store-product ${cartItem ? "selected" : ""}`}>
@@ -101,12 +154,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         <div className="store-product-label mt-3">
           <span className="store-product-title block text-base font-bold text-white">
             {product.name}
-
-            {"selectedAttributes" in (itemToAdd as any) && (itemToAdd as any).selectedAttributes ? (
+            {(itemToAdd as any).selectedAttributes && (
               <span className="block text-sm text-[#00e6cc] mt-1">
                 {(itemToAdd as any).selectedAttributes}
               </span>
-            ) : null}
+            )}
           </span>
 
           <span className="store-product-price block text-2xl font-black text-[#00e6cc] mt-2">
@@ -115,13 +167,11 @@ const StoreItem = memo(({ product }: StoreItemProps) => {
         </div>
       </div>
 
-      {product.type === "variable" && Array.isArray(product.variations) && product.variations.length > 0 && (
+      {showVariations && (
         <div className="mt-4 flex flex-wrap gap-3 justify-center">
-          {product.variations.map((variation: any) => {
+          {(product.variations as any[]).map((variation: AnyVariation) => {
             const isSelected = selectedVariation?.id === variation.id;
-            const attrs = Array.isArray(variation.attributes)
-              ? variation.attributes.map((a: any) => a?.option).filter(Boolean).join(" × ")
-              : `Вариант #${variation.id}`;
+            const attrs = variation.attributes?.map((a) => a.option).join(" × ") || `Вариант #${variation.id}`;
 
             return (
               <button

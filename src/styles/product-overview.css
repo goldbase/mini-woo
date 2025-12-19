@@ -12,7 +12,7 @@
   opacity: 1;
 }
 
-/* ====== PHOTOS: аккуратный слайдер без огромных картинок ====== */
+/* ====== PHOTOS: горизонтальный аккуратный скролл ====== */
 .product-photos {
   width: 100%;
   overflow-x: auto;
@@ -21,34 +21,30 @@
 
   scroll-snap-type: x mandatory;
   -webkit-overflow-scrolling: touch;
-  scrollbar-width: none; /* Firefox */
+  scrollbar-width: none;
   padding: 12px 12px 0;
 }
+
 .product-photos::-webkit-scrollbar {
-  display: none; /* Chrome/Safari */
+  display: none;
 }
 
-.product-photo {
+/* ВАЖНО: у тебя .product-photo это сам <img> */
+.product-photos img.product-photo {
   display: inline-block;
   width: 100%;
+  height: auto;
+
+  max-height: 320px;
+  object-fit: contain;
+
   scroll-snap-align: center;
-}
-
-.product-photo img,
-.product-photo picture,
-.product-photo video {
-  width: 100%;
-  max-height: 320px;            /* ключ: ограничиваем высоту */
-  object-fit: contain;          /* чтобы не резало */
   border-radius: 20px;
-  background: rgba(255,255,255,0.04);
+  background: rgba(255, 255, 255, 0.04);
 }
 
-/* на больших экранах чуть выше */
 @media (min-width: 768px) {
-  .product-photo img,
-  .product-photo picture,
-  .product-photo video {
+  .product-photos img.product-photo {
     max-height: 420px;
   }
 }
@@ -104,31 +100,49 @@
 /* ====== DESCRIPTION: читабельно на тёмном фоне ====== */
 .product-description {
   padding: 16px 18px 24px;
+
   color: #e5e7eb;
   line-height: 1.7;
   font-size: 15px;
+
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 22px;
+  margin: 14px 12px 24px;
 }
 
-/* УБИРАЕМ глобальное "center" и одинаковый размер на всё */
+/* ЖЁСТКО делаем весь текст светлым (иначе твои блоки могут приезжать тёмными стилями из HTML) */
+.product-description,
 .product-description * {
+  color: #e5e7eb !important;
   text-align: left;
   font-size: inherit;
   line-height: inherit;
-  color: inherit;
-}
-
-.product-description p {
-  margin: 0 0 12px;
 }
 
 .product-description strong,
 .product-description b {
-  color: #ffffff;
+  color: #ffffff !important;
   font-weight: 800;
 }
 
-.product-description em {
-  color: #d1d5db;
+.product-description a {
+  color: #00e6cc !important;
+  text-decoration: underline;
+}
+
+.product-description h1,
+.product-description h2,
+.product-description h3,
+.product-description h4 {
+  color: #ffffff !important;
+  font-weight: 900;
+  margin: 14px 0 10px;
+  line-height: 1.25;
+}
+
+.product-description p {
+  margin: 0 0 12px;
 }
 
 .product-description ul,
@@ -139,27 +153,4 @@
 
 .product-description li {
   margin: 6px 0;
-}
-
-.product-description a {
-  color: #00e6cc;
-  text-decoration: underline;
-}
-
-.product-description h1,
-.product-description h2,
-.product-description h3,
-.product-description h4 {
-  color: #ffffff;
-  font-weight: 900;
-  margin: 14px 0 10px;
-  line-height: 1.25;
-}
-
-/* Если хочешь — можно немного "карточкой" */
-.product-description {
-  background: rgba(255,255,255,0.03);
-  border: 1px solid rgba(255,255,255,0.06);
-  border-radius: 22px;
-  margin: 14px 12px 24px;
 }
