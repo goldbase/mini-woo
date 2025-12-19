@@ -1,4 +1,5 @@
 "use client"
+import "@/styles/product-overview.css";
 import {useAppContext} from "@/providers/context-provider";
 
 export default function ProductOverview() {

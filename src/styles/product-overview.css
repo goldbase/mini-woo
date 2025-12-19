@@ -154,3 +154,27 @@
 .product-description li {
   margin: 6px 0;
 }
+/* картинки именно внутри описания */
+.product-description img {
+  max-width: 100% !important;
+  height: auto !important;
+  display: block !important;
+  margin: 12px auto !important;
+  border-radius: 16px;
+  max-height: 320px !important;
+  object-fit: contain !important;
+}
+
+.product-description,
+.product-description * {
+  color: #e5e7eb !important;
+}
+
+.product-description strong,
+.product-description b,
+.product-description h1,
+.product-description h2,
+.product-description h3,
+.product-description h4 {
+  color: #ffffff !important;
+}
