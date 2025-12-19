@@ -178,3 +178,18 @@
 .product-description h4 {
   color: #ffffff !important;
 }
+
+/* === Картинки внутри описания товара === */
+.product-description img {
+  display: block;
+  max-width: 100%;
+  max-height: 220px;        /* 🔑 ключ */
+  height: auto;
+  object-fit: contain;
+  margin: 12px auto;
+  border-radius: 16px;
+}
+
+.product-description img {
+  max-height: 180px;
+}
