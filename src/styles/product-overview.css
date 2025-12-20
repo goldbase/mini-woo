@@ -1,3 +1,5 @@
+/* src/styles/product-overview.css */
+
 .product-overview {
   display: none;
   font-family: var(--default-font);
@@ -24,6 +26,7 @@
   scrollbar-width: none;
   padding: 12px 12px 0;
 }
+
 .product-photos::-webkit-scrollbar {
   display: none;
 }
@@ -35,10 +38,13 @@
   scroll-snap-align: center;
 }
 
-/* ВАЖНО: реальный img внутри .product-photo (у тебя он w-full h-auto и часто 900x900) */
+/* Реальные медиа внутри слайда */
 .product-photos .product-photo img,
 .product-photos .product-photo picture img,
 .product-photos .product-photo video {
+  display: block !important;
+  margin: 0 auto !important;
+
   width: 100% !important;
   max-width: 100% !important;
 
@@ -49,11 +55,8 @@
 
   border-radius: 20px !important;
   background: rgba(255, 255, 255, 0.04);
-  display: block !important;
-  margin: 0 auto !important;
 }
 
-/* На больших экранах чуть выше */
 @media (min-width: 768px) {
   .product-photos .product-photo img,
   .product-photos .product-photo picture img,
@@ -101,13 +104,14 @@
   font-size: 13px;
   font-weight: 800;
   transition: all 0.25s ease;
-  background: rgba(255,255,255,0.08);
-  color: rgba(255,255,255,0.85);
-  border: 1px solid rgba(255,255,255,0.12);
+
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255, 255, 255, 0.85);
+  border: 1px solid rgba(255, 255, 255, 0.12);
 }
 
 .product-variation-btn:hover {
-  background: rgba(255,255,255,0.12);
+  background: rgba(255, 255, 255, 0.12);
 }
 
 .product-variation-btn.is-active {
@@ -150,21 +154,31 @@
   border-radius: 22px;
   margin: 14px 12px 24px;
 
-  color: #e5e7eb !important;
+  color: #e5e7eb !important; /* базовый цвет текста */
   line-height: 1.7;
   font-size: 15px;
 }
 
-/* жёстко светлый текст + не даём контенту “расползаться” */
-.product-description,
-.product-description * {
-  color: inherit !important;
+/* Важное: НЕ красим “всё подряд” (чтобы не ломать SVG/iframe),
+   но защищаем от инлайнов и мусорных стилей в HTML описания */
+.product-description p,
+.product-description span,
+.product-description div,
+.product-description li,
+.product-description em,
+.product-description i,
+.product-description small {
+  color: #e5e7eb !important;
   text-align: left !important;
-  font-size: inherit !important;
-  line-height: inherit !important;
   max-width: 100% !important;
 }
 
+/* Блоки/обёртки: пусть не центрят весь контент */
+.product-description > * {
+  max-width: 100% !important;
+}
+
+/* Акценты */
 .product-description strong,
 .product-description b {
   color: #ffffff !important;
@@ -186,6 +200,7 @@
   line-height: 1.25 !important;
 }
 
+/* Отступы */
 .product-description p {
   margin: 0 0 12px !important;
 }
@@ -200,12 +215,14 @@
   margin: 6px 0 !important;
 }
 
-/* ====== КАРТИНКИ ВНУТРИ ОПИСАНИЯ (убираем 900px, и т.п.) ====== */
+/* ====== КАРТИНКИ ВНУТРИ ОПИСАНИЯ (убираем 900px и фиксируем высоту) ====== */
 .product-description img,
 .product-description figure img,
 .product-description p img,
 .product-description a img {
   display: block !important;
+  margin: 12px auto !important;
+
   width: 100% !important;
   max-width: 100% !important;
 
@@ -215,9 +232,8 @@
   object-fit: contain !important;
   aspect-ratio: auto !important;
 
-  margin: 12px auto !important;
   border-radius: 16px !important;
-  background: rgba(255,255,255,0.04) !important;
+  background: rgba(255, 255, 255, 0.04) !important;
 }
 
 .product-description figure {
