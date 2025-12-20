@@ -3,9 +3,6 @@ import { message } from "telegraf/filters";
 import { LabeledPrice } from "@telegraf/types";
 import woo from "@/lib/woo";
 
-/**
- * ENV
- */
 export const SECRET_HASH = process.env.TELEGRAM_BOT_SECRET!!;
 
 const BASE_PATH =
@@ -15,273 +12,245 @@ const BASE_PATH =
 const WEBHOOK_URL = `${BASE_PATH}/api/telegram-hook?secret_hash=${SECRET_HASH}`;
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!!;
 
-const ORDERS_CHAT_ID = process.env.TELEGRAM_CHAT_ID; // куда летят заказы (группа/канал)
-const MANAGER_CHAT_ID = process.env.TELEGRAM_MANAGER_CHAT_ID; // личный чат менеджера (user id)
-
 const bot = new Telegraf(BOT_TOKEN);
 
-/**
- * Simple in-memory state:
- * managerReplyTo[managerId] = userId (кому отвечаем следующим сообщением)
- * blockedUsers = set(userId)
- *
- * ⚠️ При рестарте PM2 это очистится. Если нужно “навсегда” — сделаем хранение в файле/SQLite.
- */
-const managerReplyTo = new Map<number, number>();
-const blockedUsers = new Set<number>();
+/** =========================
+ *  SUPPORT SETTINGS
+ *  ========================= */
+function parseManagerIds(): number[] {
+  const raw =
+    process.env.TELEGRAM_SUPPORT_MANAGER_IDS ||
+    process.env.TELEGRAM_MANAGER_CHAT_ID ||
+    "";
+  return raw
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .map((s) => Number(s))
+    .filter((n) => Number.isFinite(n) && n > 0);
+}
 
-function supportWelcomeText() {
+const SUPPORT_MANAGERS = parseManagerIds();
+
+/**
+ * Простая in-memory маршрутизация:
+ * - ticketByUser: пользователь -> ticketId
+ * - ticketToUser: ticketId -> userId
+ * - managerReplyMode: managerId -> userId (кому сейчас отвечает)
+ *
+ * ВАЖНО: это живёт в памяти процесса. После рестарта — сбросится.
+ * Для MVP норм. Если хочешь “железно” — вынесем в Redis/DB.
+ */
+let ticketSeq = 1000;
+const ticketByUser = new Map<number, number>();
+const ticketToUser = new Map<number, number>();
+const managerReplyMode = new Map<number, number>();
+
+function makeUserLabel(ctx: any) {
+  const u = ctx.from;
+  const full = [u?.first_name, u?.last_name].filter(Boolean).join(" ").trim();
+  const username = u?.username ? `@${u.username}` : "";
+  return `${full || "Пользователь"} ${username}`.trim();
+}
+
+function supportStartText() {
   return (
-    "💬 **Поддержка ErgoSpine**\n\n" +
-    "Напишите ваш вопрос одним сообщением — менеджер ответит прямо здесь.\n\n" +
-    "✅ Чтобы ответ пришёл быстрее, укажите:\n" +
-    "• модель товара (если есть)\n" +
-    "• город / доставку\n" +
-    "• рост / вес / пожелания по жёсткости (если вопрос про матрас)\n\n" +
-    "📎 Можно отправлять фото, скриншоты и голосовые.\n" +
-    "⏱️ Обычно отвечаем в течение 5–15 минут в рабочее время."
+    "🆘 *Поддержка ErgoSpine*\n\n" +
+    "Напишите сюда свой вопрос — и менеджер ответит вам в этом чате.\n\n" +
+    "Чтобы мы помогли быстрее, отправьте, пожалуйста:\n" +
+    "1) что хотите подобрать (матрас / подушку)\n" +
+    "2) рост/вес, поза сна\n" +
+    "3) есть ли боли (шея/поясница)\n" +
+    "4) город доставки\n\n" +
+    "📎 Можно прикреплять фото/скрины.\n" +
+    "⏱ Обычно отвечаем быстро."
   );
+}
+
+function storeStartText() {
+  return "Добро пожаловать в ErgoSpine 👋\nВыберите действие:";
+}
+
+function storeKeyboard() {
+  return Markup.inlineKeyboard([
+    Markup.button.webApp("🛍️ Каталог", BASE_PATH),
+    Markup.button.callback("🆘 Поддержка", "SUPPORT_OPEN"),
+  ]);
 }
 
 function supportKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.webApp("🛍️ Открыть каталог", BASE_PATH)],
-    [Markup.button.callback("🔁 Новый вопрос", "support_new")],
+    Markup.button.callback("✍️ Написать в поддержку", "SUPPORT_OPEN"),
+    Markup.button.webApp("🛍️ Открыть каталог", BASE_PATH),
   ]);
 }
 
-function managerTicketKeyboard(userId: number) {
-  return Markup.inlineKeyboard([
-    [
-      Markup.button.callback("✍️ Ответить", `reply:${userId}`),
-      Markup.button.callback("✅ Закрыть", `close:${userId}`),
-    ],
-    [Markup.button.callback("⛔️ Заблокировать", `block:${userId}`)],
-  ]);
-}
-
-function safeUserTag(userId: number) {
-  return `tg://user?id=${userId}`;
-}
-
-function isManager(ctx: any) {
-  const fromId = ctx.from?.id;
-  if (!fromId) return false;
-  return MANAGER_CHAT_ID ? String(fromId) === String(MANAGER_CHAT_ID) : false;
-}
-
-/**
- * START
- * - /start support => режим поддержки
- * - /start => магазин
- */
+/** =========================
+ *  START / MENU
+ *  ========================= */
 bot.start(async (ctx) => {
-  const text = ctx.message?.text || "";
-  const payload = text.split(" ").slice(1).join(" ").trim();
+  const payload = (ctx.startPayload || "").trim();
 
-  // Поддержка по deep-link
   if (payload === "support") {
-    // убираем webapp menu (чтобы не путало пользователя)
-    await ctx.setChatMenuButton({ type: "commands" });
-
-    await ctx.replyWithMarkdown(supportWelcomeText(), supportKeyboard());
+    await ctx.reply(supportStartText(), { parse_mode: "Markdown", ...supportKeyboard() });
     return;
   }
 
-  // Магазин (обычный старт)
-  await ctx.setChatMenuButton({
-    type: "web_app",
-    text: "Каталог",
-    web_app: { url: BASE_PATH },
-  });
-
-  await ctx.reply(
-    "Добро пожаловать в ErgoSpine 👋",
-    Markup.inlineKeyboard([
-      [Markup.button.webApp("🛍️ Открыть каталог", BASE_PATH)],
-      [Markup.button.url("💬 Поддержка", `https://t.me/${ctx.me}?start=support`)],
-    ])
-  );
+  await ctx.reply(storeStartText(), storeKeyboard());
 });
 
-bot.help(async (ctx) => {
-  await ctx.reply("Нажмите /start чтобы открыть каталог или поддержку.");
-});
-
-bot.command("menu", async (ctx) => {
-  await ctx.setChatMenuButton({
-    text: "Каталог",
-    type: "web_app",
-    web_app: { url: BASE_PATH },
-  });
-  await ctx.reply("Кнопка «Каталог» включена ✅");
-});
-
-/**
- * Support: кнопка "Новый вопрос"
- */
-bot.action("support_new", async (ctx) => {
+bot.action("SUPPORT_OPEN", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.replyWithMarkdown(
-    "🆕 Отлично! Опишите ваш вопрос одним сообщением.\n\n" +
-      "Например:\n" +
-      "• «Хочу матрас, болит поясница, рост 178 вес 92, сплю на боку»\n" +
-      "• «Как быстро доставите в Краснодар?»"
-  );
+  await ctx.reply(supportStartText(), { parse_mode: "Markdown" });
 });
 
-/**
- * Forward user messages to manager (support)
- * - text/photos/voice/documents
- * - Only from private chats (DM to bot)
- */
-bot.on(message(), async (ctx) => {
-  // Не мешаем системным апдейтам и платежам
-  // (successful_payment, pre_checkout_query etc. — отдельные handlers ниже)
-  const chatType = ctx.chat?.type;
-  if (chatType !== "private") return;
+bot.help((ctx) => ctx.reply("Напишите /start чтобы открыть меню."));
 
-  const userId = ctx.from?.id;
-  if (!userId) return;
+bot.command("menu", (ctx) =>
+  ctx.setChatMenuButton({
+    text: "Каталог",
+    type: "web_app",
+    web_app: { url: BASE_PATH },
+  })
+);
 
-  // Если юзер заблокирован — игнорим
-  if (blockedUsers.has(userId)) return;
+/** =========================
+ *  SUPPORT: create ticket on any user message
+ *  ========================= */
+async function sendToManagers(text: string, extra?: any) {
+  if (!SUPPORT_MANAGERS.length) return;
 
-  // Если пишет менеджер — это обработаем отдельно ниже (режим ответа)
-  if (isManager(ctx)) return;
-
-  // Любое обычное сообщение пользователя в личке считаем обращением в поддержку
-  if (!MANAGER_CHAT_ID) {
-    await ctx.reply(
-      "⚠️ Поддержка сейчас не настроена: не задан TELEGRAM_MANAGER_CHAT_ID."
-    );
-    return;
-  }
-
-  // Красивый “принято”
-  await ctx.reply(
-    "✅ Принято! Передал менеджеру. Он ответит здесь в этом чате.",
-    Markup.inlineKeyboard([[Markup.button.webApp("🛍️ Каталог", BASE_PATH)]])
-  );
-
-  // Отправляем менеджеру с контекстом
-  const userName =
-    [ctx.from?.first_name, ctx.from?.last_name].filter(Boolean).join(" ") ||
-    "Пользователь";
-
-  const header =
-    "📩 **Новое обращение в поддержку**\n" +
-    `👤 ${userName}\n` +
-    `🆔 ${userId}\n` +
-    `🔗 ${safeUserTag(userId)}\n\n`;
-
-  // 1) сначала шапку
-  await bot.telegram.sendMessage(
-    Number(MANAGER_CHAT_ID),
-    header,
-    { parse_mode: "Markdown", ...managerTicketKeyboard(userId) }
-  );
-
-  // 2) потом сам контент — пересылаем оригинал (так удобнее: фото/голос и т.д.)
-  // forwardMessage сохраняет "кто отправил", но иногда приватность мешает.
-  // Поэтому делаем copyMessage — надёжнее и без лишних ограничений.
-  try {
-    await bot.telegram.copyMessage(
-      Number(MANAGER_CHAT_ID),
-      ctx.chat.id,
-      (ctx.message as any).message_id
-    );
-  } catch (e) {
-    // fallback: если copyMessage не прошёл — хотя бы текстом
-    const text = (ctx.message as any)?.text;
-    if (text) {
-      await bot.telegram.sendMessage(Number(MANAGER_CHAT_ID), `📝 ${text}`);
+  for (const mid of SUPPORT_MANAGERS) {
+    try {
+      await bot.telegram.sendMessage(mid, text, extra);
+    } catch (e) {
+      // не падаем
+      console.log("Support manager send error:", mid, e);
     }
   }
-});
+}
 
-/**
- * Manager buttons: Reply / Close / Block
- */
-bot.action(/^reply:(\d+)$/, async (ctx) => {
+function ensureTicket(userId: number): number {
+  let tid = ticketByUser.get(userId);
+  if (!tid) {
+    tid = ++ticketSeq;
+    ticketByUser.set(userId, tid);
+    ticketToUser.set(tid, userId);
+  }
+  return tid;
+}
+
+function managerTicketKeyboard(ticketId: number) {
+  return Markup.inlineKeyboard([
+    Markup.button.callback("💬 Ответить", `SUPPORT_REPLY:${ticketId}`),
+    Markup.button.callback("✅ Закрыть", `SUPPORT_CLOSE:${ticketId}`),
+  ]);
+}
+
+bot.action(/^SUPPORT_REPLY:(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
 
-  if (!isManager(ctx)) {
-    await ctx.reply("Недостаточно прав.");
+  const managerId = ctx.from?.id;
+  const ticketId = Number((ctx.match as any)[1]);
+  const userId = ticketToUser.get(ticketId);
+
+  if (!managerId || !userId) {
+    await ctx.reply("Не могу найти пользователя этого тикета.");
     return;
   }
 
-  const userId = Number(ctx.match[1]);
-  managerReplyTo.set(Number(MANAGER_CHAT_ID), userId);
+  managerReplyMode.set(managerId, userId);
 
   await ctx.reply(
-    `✍️ Режим ответа включён.\nСледующее ваше сообщение уйдёт пользователю: ${userId}\n\n` +
-      "Напишите текст/отправьте фото/голос — всё уйдёт клиенту."
+    `✍️ Режим ответа включён.\nСледующее ваше сообщение уйдёт клиенту (тикет #${ticketId}).\n\nЧтобы отменить — нажмите «Закрыть» или отправьте /cancel`,
+    Markup.inlineKeyboard([Markup.button.callback("✅ Закрыть", `SUPPORT_CLOSE:${ticketId}`)])
   );
 });
 
-bot.action(/^close:(\d+)$/, async (ctx) => {
+bot.action(/^SUPPORT_CLOSE:(\d+)$/, async (ctx) => {
   await ctx.answerCbQuery();
+  const managerId = ctx.from?.id;
+  const ticketId = Number((ctx.match as any)[1]);
 
-  if (!isManager(ctx)) {
-    await ctx.reply("Недостаточно прав.");
-    return;
+  const userId = ticketToUser.get(ticketId);
+  if (userId) {
+    // закрываем тикет (по желанию можно оставить историю)
+    ticketToUser.delete(ticketId);
+    ticketByUser.delete(userId);
   }
+  if (managerId) managerReplyMode.delete(managerId);
 
-  const userId = Number(ctx.match[1]);
-
-  // Просто информируем менеджера, можно расширить логикой статусов
-  await ctx.reply(`✅ Тикет закрыт (userId: ${userId}).`);
+  await ctx.reply(`✅ Тикет #${ticketId} закрыт.`);
 });
 
-bot.action(/^block:(\d+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-
-  if (!isManager(ctx)) {
-    await ctx.reply("Недостаточно прав.");
+bot.command("cancel", async (ctx) => {
+  const managerId = ctx.from?.id;
+  if (managerId && managerReplyMode.has(managerId)) {
+    managerReplyMode.delete(managerId);
+    await ctx.reply("Ок, режим ответа отключён.");
     return;
   }
-
-  const userId = Number(ctx.match[1]);
-  blockedUsers.add(userId);
-
-  await ctx.reply(`⛔️ Пользователь заблокирован (userId: ${userId}).`);
+  await ctx.reply("Нечего отменять 🙂");
 });
 
 /**
- * Manager sends a message -> if in reply-mode, forward to user
+ * Сообщения:
+ * - если пишет менеджер и он в replyMode -> отправляем клиенту
+ * - если пишет обычный пользователь -> создаём тикет и шлём менеджерам
  */
-bot.on(message(), async (ctx) => {
+bot.on(message("text"), async (ctx) => {
   const chatType = ctx.chat?.type;
+  const fromId = ctx.from?.id;
+
+  if (!fromId) return;
+
+  // Менеджер отвечает клиенту
+  if (SUPPORT_MANAGERS.includes(fromId) && managerReplyMode.has(fromId)) {
+    const userId = managerReplyMode.get(fromId)!;
+    const text = ctx.message.text;
+
+    try {
+      await bot.telegram.sendMessage(
+        userId,
+        `💬 *Ответ поддержки*\n\n${text}`,
+        { parse_mode: "Markdown" }
+      );
+      await ctx.reply("✅ Отправлено клиенту.");
+    } catch (e) {
+      await ctx.reply("❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его.");
+    }
+    return;
+  }
+
+  // Игнорируем сообщения не из private (на всякий)
   if (chatType !== "private") return;
 
-  if (!isManager(ctx)) return;
+  // Обычный пользователь -> тикет
+  const ticketId = ensureTicket(fromId);
+  const userLabel = makeUserLabel(ctx);
+  const text = ctx.message.text;
 
-  const managerId = Number(MANAGER_CHAT_ID);
-  const userId = managerReplyTo.get(managerId);
+  const msg =
+    `🆘 *Новый запрос поддержки*\n` +
+    `Тикет: #${ticketId}\n` +
+    `Клиент: ${userLabel}\n` +
+    `ID: \`${fromId}\`\n\n` +
+    `Сообщение:\n${text}`;
 
-  // менеджер не в режиме ответа — не трогаем
-  if (!userId) return;
+  await sendToManagers(msg, { parse_mode: "Markdown", ...managerTicketKeyboard(ticketId) });
 
-  try {
-    await bot.telegram.copyMessage(userId, ctx.chat.id, (ctx.message as any).message_id);
-    await ctx.reply("✅ Отправлено клиенту.");
-
-    // выключаем режим ответа после одного сообщения (как ты и хотел)
-    managerReplyTo.delete(managerId);
-  } catch (e) {
-    await ctx.reply("❌ Не смог отправить клиенту. Возможно, клиент не нажимал /start у бота.");
-  }
+  await ctx.reply(
+    "✅ Принято! Менеджер уже получил ваш запрос.\nЕсли нужно — добавьте детали (город, рост/вес, поза сна)."
+  );
 });
 
-/**
- * Payments / Shipping (оставляем как у тебя)
- */
+/** =========================
+ *  EXISTING: shipping/payment
+ *  ========================= */
 bot.on("shipping_query", async (ctx) => {
   const payload = JSON.parse(ctx.update.shipping_query.invoice_payload);
   const shippingOptions = await woo.getShippingOptions(payload.shippingZone);
-  if (shippingOptions.length)
-    ctx.answerShippingQuery(true, shippingOptions, undefined);
+  if (shippingOptions.length) ctx.answerShippingQuery(true, shippingOptions, undefined);
   else ctx.answerShippingQuery(false, undefined, "No shipping option available at your zone!");
 });
 
@@ -297,14 +266,10 @@ bot.on(message("successful_payment"), async (ctx) => {
   const payload = JSON.parse(ctx.update.message.successful_payment.invoice_payload);
   const res = await woo.setOrderPaid(payload.orderId);
   if (res.status === 200) {
-    ctx.reply("Заказ успешно зарегистрирован ✅");
+    ctx.reply("Order successfully registered!");
   } else {
     ctx.reply(
-      `Ошибка регистрации оплаты, напишите в поддержку.\n
-orderId:${payload.orderId}\n
-${ctx.update.message.successful_payment.telegram_payment_charge_id}\n
-${ctx.update.message.successful_payment.provider_payment_charge_id}
-`
+      `Error registering payment, contact support!\norderId:${payload.orderId}\n${ctx.update.message.successful_payment.telegram_payment_charge_id}\n${ctx.update.message.successful_payment.provider_payment_charge_id}`
     );
   }
 });
