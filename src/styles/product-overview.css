@@ -12,7 +12,7 @@
   opacity: 1;
 }
 
-/* ====== PHOTOS (верхняя галерея): аккуратный горизонтальный скролл ====== */
+/* ====== PHOTOS: аккуратный слайдер ====== */
 .product-photos {
   width: 100%;
   overflow-x: auto;
@@ -28,27 +28,41 @@
   display: none;
 }
 
-/* ВАЖНО: в твоём DOM .product-photo — это IMG */
-.product-photos img.product-photo {
+/* Обёртка слайда */
+.product-photos .product-photo {
   display: inline-block;
-  width: 100% !important;
-  height: auto !important;
-
-  max-height: 320px !important;
-  object-fit: contain !important;
-
+  width: 100%;
   scroll-snap-align: center;
-  border-radius: 20px;
-  background: rgba(255, 255, 255, 0.04);
 }
 
+/* ВАЖНО: реальный img внутри .product-photo (у тебя он w-full h-auto и часто 900x900) */
+.product-photos .product-photo img,
+.product-photos .product-photo picture img,
+.product-photos .product-photo video {
+  width: 100% !important;
+  max-width: 100% !important;
+
+  height: auto !important;
+  max-height: 320px !important;
+
+  object-fit: contain !important;
+
+  border-radius: 20px !important;
+  background: rgba(255, 255, 255, 0.04);
+  display: block !important;
+  margin: 0 auto !important;
+}
+
+/* На больших экранах чуть выше */
 @media (min-width: 768px) {
-  .product-photos img.product-photo {
+  .product-photos .product-photo img,
+  .product-photos .product-photo picture img,
+  .product-photos .product-photo video {
     max-height: 420px !important;
   }
 }
 
-/* ====== TITLE / PRICE ====== */
+/* ====== LABEL ====== */
 .product-label {
   display: flex;
   flex-direction: column;
@@ -72,6 +86,37 @@
   font-size: 22px;
 }
 
+/* ====== VARIATIONS (как на главном) ====== */
+.product-variations {
+  padding: 0 12px 8px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  justify-content: center;
+}
+
+.product-variation-btn {
+  padding: 10px 14px;
+  border-radius: 999px;
+  font-size: 13px;
+  font-weight: 800;
+  transition: all 0.25s ease;
+  background: rgba(255,255,255,0.08);
+  color: rgba(255,255,255,0.85);
+  border: 1px solid rgba(255,255,255,0.12);
+}
+
+.product-variation-btn:hover {
+  background: rgba(255,255,255,0.12);
+}
+
+.product-variation-btn.is-active {
+  background: linear-gradient(90deg, #00d0b8, #00e6cc);
+  color: #0b182f;
+  border-color: rgba(0, 230, 204, 0.55);
+  box-shadow: 0 12px 26px rgba(0, 230, 204, 0.25);
+}
+
 /* ====== COUNTER ====== */
 .product-counter {
   width: 48px;
@@ -91,16 +136,17 @@
   background-color: var(--hint-color);
   color: #0b182f;
 }
+
 .selected .product-counter {
   background-color: var(--accent-color);
 }
 
-/* ====== DESCRIPTION: светлый текст + контроль всего “мусора” из Woo HTML ====== */
+/* ====== DESCRIPTION: читабельно на тёмном фоне ====== */
 .product-description {
   padding: 16px 18px 24px;
 
-  background: rgba(255, 255, 255, 0.03);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.10);
   border-radius: 22px;
   margin: 14px 12px 24px;
 
@@ -109,7 +155,8 @@
   font-size: 15px;
 }
 
-/* Принудительно наследуем светлые стили для всего, что Woo вставил инлайном */
+/* жёстко светлый текст + не даём контенту “расползаться” */
+.product-description,
 .product-description * {
   color: inherit !important;
   text-align: left !important;
@@ -118,12 +165,17 @@
   max-width: 100% !important;
 }
 
-/* заголовки/жирный */
 .product-description strong,
 .product-description b {
   color: #ffffff !important;
-  font-weight: 800 !important;
+  font-weight: 900 !important;
 }
+
+.product-description a {
+  color: #00e6cc !important;
+  text-decoration: underline !important;
+}
+
 .product-description h1,
 .product-description h2,
 .product-description h3,
@@ -133,25 +185,22 @@
   margin: 14px 0 10px !important;
   line-height: 1.25 !important;
 }
+
 .product-description p {
   margin: 0 0 12px !important;
 }
-.product-description a {
-  color: #00e6cc !important;
-  text-decoration: underline !important;
-}
 
-/* списки */
 .product-description ul,
 .product-description ol {
   margin: 10px 0 14px 18px !important;
   padding: 0 !important;
 }
+
 .product-description li {
   margin: 6px 0 !important;
 }
 
-/* 🔥 КРИТИЧНО: картинки внутри описания (Woo может ставить width/height 900px inline) */
+/* ====== КАРТИНКИ ВНУТРИ ОПИСАНИЯ (убираем 900px, и т.п.) ====== */
 .product-description img,
 .product-description figure img,
 .product-description p img,
@@ -164,15 +213,14 @@
   max-height: 220px !important;
 
   object-fit: contain !important;
+  aspect-ratio: auto !important;
+
   margin: 12px auto !important;
   border-radius: 16px !important;
-
-  /* перебиваем inline width/height */
-  aspect-ratio: auto !important;
+  background: rgba(255,255,255,0.04) !important;
 }
 
-/* если Woo вставляет <figure> с размерами */
 .product-description figure {
-  margin: 12px auto !important;
   max-width: 100% !important;
+  margin: 12px auto !important;
 }

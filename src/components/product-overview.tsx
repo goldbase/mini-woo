@@ -1,10 +1,9 @@
 "use client";
 
-import "@/styles/product-overview.css";
-
 import { useAppContext, Product } from "@/providers/context-provider";
 import Image from "next/image";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import "@/styles/product-overview.css";
 
 type AnyVariation = {
   id: number;
@@ -18,7 +17,7 @@ type AnyVariation = {
 
 function parsePriceToNumber(rawHtmlOrText: string): number | null {
   if (!rawHtmlOrText) return null;
-  let raw = rawHtmlOrText.replace(/<[^>]*>/g, " ").trim();
+  const raw = rawHtmlOrText.replace(/<[^>]*>/g, " ").trim();
   const match = raw.match(/(\d[\d\s.,]*)/);
   if (!match) return null;
   const cleaned = match[1].replace(/\s/g, "").replace(/,/g, ".");
@@ -33,25 +32,26 @@ function formatRub(value: number | null): string {
 
 const ProductOverview = memo(() => {
   const { state, dispatch } = useAppContext();
-  const product = state.selectedProduct;
+  const product = state.selectedProduct ?? null;
 
   const [selectedVariation, setSelectedVariation] = useState<AnyVariation | null>(null);
 
   useEffect(() => {
     if (!product) return;
-    if (product.type === "variable" && product.variations && product.variations.length > 0) {
+
+    if (product.type === "variable" && product.variations?.length) {
       setSelectedVariation(product.variations[0] as any);
     } else {
       setSelectedVariation(null);
     }
   }, [product]);
 
-  const selectedAttrs = useMemo(() => {
+  const selectedAttrsLabel = useMemo(() => {
     if (!selectedVariation?.attributes?.length) return "";
     return selectedVariation.attributes.map((a) => a.option).join(" × ");
   }, [selectedVariation]);
 
-  const itemForCart = useMemo(() => {
+  const resolvedProduct = useMemo(() => {
     if (!product) return null;
 
     if (selectedVariation) {
@@ -59,13 +59,7 @@ const ProductOverview = memo(() => {
 
       const images =
         v.image?.src
-          ? [
-              {
-                src: v.image.src,
-                alt: v.image.alt,
-                id: (v.image as any).id,
-              },
-            ]
+          ? [{ src: v.image.src, alt: v.image.alt, id: (v.image as any).id }]
           : product.images;
 
       return {
@@ -76,89 +70,86 @@ const ProductOverview = memo(() => {
         sale_price: v.sale_price ?? product.sale_price,
         price_html: v.price_html ?? product.price_html,
         images,
-        selectedAttributes: selectedAttrs,
+        selectedAttributes: selectedAttrsLabel,
       } as any;
     }
 
     return product as any;
-  }, [product, selectedVariation, selectedAttrs]);
+  }, [product, selectedVariation, selectedAttrsLabel]);
 
-  const cartItem = useMemo(() => {
-    if (!product) return null;
-    // корзина у тебя keyed по product.id (как на главном)
-    return state.cart.get(product.id) || null;
-  }, [state.cart, product]);
-
-  const showVariations = !!product && product.type === "variable" && product.variations && product.variations.length > 0;
-
-  const priceText = useMemo(() => {
-    if (!itemForCart) return "";
+  const formattedPrice = useMemo(() => {
+    if (!resolvedProduct) return "";
 
     const raw =
-      (itemForCart.sale_price && itemForCart.sale_price !== "0" ? itemForCart.sale_price : "") ||
-      itemForCart.price ||
-      itemForCart.regular_price ||
-      itemForCart.price_html ||
+      (resolvedProduct.sale_price && resolvedProduct.sale_price !== "0" ? resolvedProduct.sale_price : "") ||
+      resolvedProduct.price ||
+      resolvedProduct.regular_price ||
+      resolvedProduct.price_html ||
       "";
 
-    const num = parsePriceToNumber(raw);
-    return formatRub(num);
-  }, [itemForCart]);
+    return formatRub(parsePriceToNumber(raw));
+  }, [resolvedProduct]);
+
+  const showVariations =
+    !!product && product.type === "variable" && Array.isArray(product.variations) && product.variations.length > 0;
+
+  const cartKey = useMemo(() => {
+    // ВАЖНО: если у тебя cart map ключуется по product.id — оставляем.
+    // variationId хранится внутри объекта product (resolvedProduct.variationId)
+    return product?.id ?? 0;
+  }, [product?.id]);
+
+  const cartItem = state.cart.get(cartKey);
 
   const images = useMemo(() => {
-    if (!itemForCart?.images?.length) return [{ src: "/no-image.png", alt: "Нет фото" }];
-    return itemForCart.images;
-  }, [itemForCart]);
+    if (!resolvedProduct) return [];
+    return resolvedProduct.images || [];
+  }, [resolvedProduct]);
 
-  const handleBack = useCallback(() => {
+  const addToCart = useCallback(() => {
+    if (!resolvedProduct || !product) return;
+    dispatch({ type: "inc", product: resolvedProduct });
+
+    const tg = (globalThis as any).Telegram?.WebApp;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("light");
+  }, [dispatch, resolvedProduct, product]);
+
+  const removeFromCart = useCallback(() => {
+    if (!resolvedProduct || !product) return;
+    dispatch({ type: "dec", product: resolvedProduct });
+
+    const tg = (globalThis as any).Telegram?.WebApp;
+    if (tg?.HapticFeedback) tg.HapticFeedback.impactOccurred("medium");
+  }, [dispatch, resolvedProduct, product]);
+
+  const goBack = useCallback(() => {
     dispatch({ type: "storefront" });
   }, [dispatch]);
 
-  const handleAdd = useCallback(() => {
-    if (!itemForCart) return;
-    dispatch({ type: "inc", product: itemForCart });
-
-    if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
-      (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("light");
-    }
-  }, [dispatch, itemForCart]);
-
-  const handleRemove = useCallback(() => {
-    if (!itemForCart) return;
-    dispatch({ type: "dec", product: itemForCart });
-
-    if ((globalThis as any).Telegram?.WebApp?.HapticFeedback) {
-      (globalThis as any).Telegram.WebApp.HapticFeedback.impactOccurred("medium");
-    }
-  }, [dispatch, itemForCart]);
-
-  if (!product || !itemForCart) return null;
+  if (!product || !resolvedProduct) return null;
 
   return (
     <section className="product-overview">
       <div className="product-photos">
-        {images.map((img: any, idx: number) => {
+        {(images.length ? images : [{ src: "/no-image.png", alt: "Нет изображения" }]).map((img: any, idx: number) => {
           const src = img?.src || "/no-image.png";
           const alt = img?.alt || product.name || "Товар";
 
-          // cache-busting: если заменил картинку на том же URL
-          const v =
-            (product as any).date_modified ||
-            img?.id ||
-            (selectedVariation?.id ? `var${selectedVariation.id}` : `p${product.id}`);
+          // cache-busting, если WP отдаёт тот же URL (часто так и бывает)
+          const v = img?.id ?? (selectedVariation?.id ? `var${selectedVariation.id}` : `p${product.id}`);
 
           const finalSrc = `${src}${src.includes("?") ? "&" : "?"}v=${encodeURIComponent(String(v))}`;
 
           return (
-            <div key={`${src}-${idx}`} className="product-photo">
+            <div className="product-photo" key={`${finalSrc}-${idx}`}>
               <Image
                 src={finalSrc}
                 alt={alt}
                 width={900}
                 height={900}
-                unoptimized
                 className="w-full h-auto"
-                loading={idx === 0 ? "eager" : "lazy"}
+                priority={idx === 0}
+                unoptimized
               />
             </div>
           );
@@ -168,49 +159,43 @@ const ProductOverview = memo(() => {
       <div className="product-label">
         <span className="product-title">
           {product.name}
-          {(itemForCart as any).selectedAttributes && (
-            <span style={{ display: "block", marginTop: 6, color: "#00e6cc", fontWeight: 700, fontSize: 14 }}>
-              {(itemForCart as any).selectedAttributes}
+          {resolvedProduct.selectedAttributes ? (
+            <span style={{ display: "block", marginTop: 6, color: "#00e6cc", fontSize: 13, fontWeight: 800 }}>
+              {resolvedProduct.selectedAttributes}
             </span>
-          )}
+          ) : null}
         </span>
 
-        <span className="product-price">{priceText}</span>
-
-        {cartItem && cartItem.count > 0 && (
-          <div className={`product-counter ${cartItem ? "selected" : ""}`}>{cartItem.count}</div>
-        )}
+        <span className="product-price">{formattedPrice}</span>
       </div>
 
       {showVariations && (
-        <div style={{ padding: "0 12px 12px", display: "flex", flexWrap: "wrap", gap: 10, justifyContent: "center" }}>
-          {(product.variations as any[]).map((variation: AnyVariation) => {
-            const isSelected = selectedVariation?.id === variation.id;
-            const attrs = variation.attributes?.map((a) => a.option).join(" × ") || `Вариант #${variation.id}`;
+        <div className="product-variations">
+          {(product.variations as any[]).map((v: AnyVariation) => {
+            const isActive = selectedVariation?.id === v.id;
+            const label = v.attributes?.map((a) => a.option).join(" × ") || `Вариант #${v.id}`;
 
             return (
               <button
-                key={variation.id}
-                onClick={() => setSelectedVariation(variation)}
-                className={`px-6 py-3 rounded-full text-sm font-bold transition-all duration-300 ${
-                  isSelected
-                    ? "bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] shadow-lg"
-                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
-                }`}
+                key={v.id}
+                type="button"
+                className={`product-variation-btn ${isActive ? "is-active" : ""}`}
+                onClick={() => setSelectedVariation(v)}
               >
-                {attrs}
+                {label}
               </button>
             );
           })}
         </div>
       )}
 
-      <div style={{ padding: "0 12px 18px", display: "flex", gap: 12, alignItems: "center" }}>
+      <div style={{ padding: "0px 12px 18px", display: "flex", gap: 12, alignItems: "center" }}>
         {cartItem && cartItem.count > 0 ? (
           <button
-            onClick={handleRemove}
+            type="button"
+            onClick={removeFromCart}
             className="w-14 h-14 bg-red-600 text-white rounded-full flex items-center justify-center text-3xl font-bold hover:bg-red-700 transition-all shadow-lg"
-            aria-label="Уменьшить"
+            aria-label="Уменьшить количество"
           >
             −
           </button>
@@ -219,23 +204,22 @@ const ProductOverview = memo(() => {
         )}
 
         <button
-          onClick={handleAdd}
+          type="button"
+          onClick={addToCart}
           className="flex-1 h-16 bg-gradient-to-r from-[#00d0b8] to-[#00e6cc] text-[#0b182f] rounded-3xl font-black text-xl shadow-2xl hover:shadow-3xl hover:scale-105 transition-all duration-300"
         >
           <span className="block">{cartItem ? "Ещё" : "В корзину"}</span>
         </button>
       </div>
 
+      {/* описание */}
       <div
         className="product-description"
-        // Woo description html:
-        dangerouslySetInnerHTML={{
-          __html: (product as any).description || (product as any).short_description || "",
-        }}
+        dangerouslySetInnerHTML={{ __html: product.description || product.short_description || "" }}
       />
 
-      <div style={{ padding: "0 12px 28px" }}>
-        <button onClick={handleBack} className="w-full mt-2 text-[#00e6cc] text-center hover:underline">
+      <div style={{ padding: "0px 12px 28px" }}>
+        <button className="w-full mt-2 text-[#00e6cc] text-center hover:underline" onClick={goBack}>
           ← Назад в каталог
         </button>
       </div>
