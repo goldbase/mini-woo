@@ -17,9 +17,10 @@ const PUBLIC_URL =
   (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : "");
 
 const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/"; // для WebApp (обычно "/")
+
 const WEB_APP_URL = PUBLIC_URL
   ? `${PUBLIC_URL}${BASE_PATH.startsWith("/") ? BASE_PATH : `/${BASE_PATH}`}`
-  : BASE_PATH; // fallback
+  : BASE_PATH; // fallback (на случай локалки)
 
 const WEBHOOK_URL = PUBLIC_URL
   ? `${PUBLIC_URL}/api/telegram-hook?secret_hash=${SECRET_HASH}`
@@ -27,16 +28,28 @@ const WEBHOOK_URL = PUBLIC_URL
 
 const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!!;
 
-// Закрытая группа для дубля (контроль)
-const STAFF_GROUP_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim(); // -100...
+// Закрытая группа для дубля (контроль). У тебя это TELEGRAM_CHAT_ID=-100....
+const STAFF_GROUP_CHAT_ID = (process.env.TELEGRAM_CHAT_ID || "").trim();
 
 const bot = new Telegraf(BOT_TOKEN);
 
 /**
  * =========================
- * HELPERS: Managers / group
+ * HELPERS: safe send / html escape
  * =========================
  */
+function escapeHtml(input: string) {
+  return (input || "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;");
+}
+
+function htmlLine(label: string, value: string) {
+  return `• <b>${escapeHtml(label)}:</b> ${escapeHtml(value)}`;
+}
+
 function parseManagerIds(): number[] {
   const raw =
     process.env.TELEGRAM_SUPPORT_MANAGER_IDS ||
@@ -67,7 +80,6 @@ async function sendToManagers(text: string, extra?: any) {
   }
 }
 
-/** Дублирование в закрытую группу для контроля */
 async function sendToStaffGroup(text: string, extra?: any) {
   if (!STAFF_GROUP_CHAT_ID) return;
   await safeSendMessage(STAFF_GROUP_CHAT_ID, text, extra);
@@ -76,7 +88,8 @@ async function sendToStaffGroup(text: string, extra?: any) {
 function userLabelFrom(from: any) {
   const full = [from?.first_name, from?.last_name].filter(Boolean).join(" ").trim();
   const username = from?.username ? `@${from.username}` : "";
-  return `${full || "Пользователь"}${username ? ` (${username})` : ""}`.trim();
+  const base = (full || "Пользователь").trim();
+  return username ? `${base} (${username})` : base;
 }
 
 /**
@@ -84,13 +97,13 @@ function userLabelFrom(from: any) {
  * MAIN UI (start)
  * =========================
  */
-function mainMenuText() {
+function mainMenuTextHTML() {
   return (
-    "👋 *ErgoSpine*\n\n" +
-    "Выберите действие:\n" +
-    "🛍️ Каталог — открыть магазин\n" +
-    "🧠 Тест на сон — получить персональную рекомендацию\n" +
-    "🆘 Поддержка — задать вопрос менеджеру"
+    `👋 <b>ErgoSpine</b>\n\n` +
+    `Выберите действие:\n` +
+    `🛍️ Каталог — открыть магазин\n` +
+    `🧠 Тест на сон — получить персональную рекомендацию\n` +
+    `🆘 Поддержка — задать вопрос менеджеру`
   );
 }
 
@@ -113,17 +126,17 @@ const ticketByUser = new Map<number, number>();      // userId -> ticketId
 const ticketToUser = new Map<number, number>();      // ticketId -> userId
 const managerReplyMode = new Map<number, number>();  // managerId -> userId
 
-function supportStartText() {
+function supportStartTextHTML() {
   return (
-    "🆘 *Поддержка ErgoSpine*\n\n" +
-    "Напишите сюда ваш вопрос — менеджер ответит вам в этом чате.\n\n" +
-    "Чтобы помочь быстрее, пожалуйста, укажите:\n" +
-    "1) что хотите подобрать (матрас / подушку)\n" +
-    "2) рост/вес, поза сна\n" +
-    "3) есть ли боли (шея/поясница)\n" +
-    "4) город доставки\n\n" +
-    "📎 Можно прикреплять фото/скрины.\n" +
-    "⏱ Обычно отвечаем быстро."
+    `🆘 <b>Поддержка ErgoSpine</b>\n\n` +
+    `Напишите сюда ваш вопрос — менеджер ответит вам в этом чате.\n\n` +
+    `Чтобы помочь быстрее, пожалуйста, укажите:\n` +
+    `1) что хотите подобрать (матрас / подушку)\n` +
+    `2) рост/вес, поза сна\n` +
+    `3) есть ли боли (шея/поясница)\n` +
+    `4) город доставки\n\n` +
+    `📎 Можно прикреплять фото/скрины.\n` +
+    `⏱ Обычно отвечаем быстро.`
   );
 }
 
@@ -160,7 +173,6 @@ type QuizAnswers = {
   partner?: "alone" | "with";
   hot?: "yes" | "sometimes" | "no";
 
-  // контакты
   contact_name?: string;
   contact_phone?: string;
   contact_address?: string;
@@ -181,20 +193,21 @@ type QuizSession = {
     | "contact_phone"
     | "contact_address";
   answers: QuizAnswers;
-  msg?: { chatId: number; messageId: number }; // чтобы красиво edit-ить вопросы
+  msg?: { chatId: number; messageId: number }; // для красивого edit
+  lastResult?: { score: number; model: string; reason: string }; // чтобы одинаково отправить клиенту + в лид
 };
 
 const quizSessionByUser = new Map<number, QuizSession>();
 
-function quizIntroText() {
+function quizIntroTextHTML() {
   return (
-    "🧠 *Тест на сон (2 минуты)*\n\n" +
-    "Ответьте на несколько вопросов — и вы получите персональную рекомендацию по матрасу.\n\n" +
-    "Поехали 👇"
+    `🧠 <b>Тест на сон (2 минуты)</b>\n\n` +
+    `Ответьте на несколько вопросов — и вы получите персональную рекомендацию по матрасу.\n\n` +
+    `Поехали 👇`
   );
 }
 
-function quizQuestionText(step: QuizSession["step"]) {
+function quizQuestionTextHTML(step: QuizSession["step"]) {
   switch (step) {
     case "age":
       return "1/8 👤 Ваш возраст?";
@@ -218,7 +231,7 @@ function quizQuestionText(step: QuizSession["step"]) {
 }
 
 function quizKeyboard(step: QuizSession["step"]) {
-  // callback_data делаем стабильным форматом: Q:<step>:<value>
+  // callback_data: Q:<step>:<value>
   switch (step) {
     case "age":
       return Markup.inlineKeyboard([
@@ -299,34 +312,95 @@ function nextQuizStep(step: QuizSession["step"]): QuizSession["step"] {
   }
 }
 
+function labelAge(v?: QuizAnswers["age"]) {
+  switch (v) {
+    case "lt30": return "до 30";
+    case "30_45": return "30–45";
+    case "45_60": return "45–60";
+    case "gt60": return "60+";
+    default: return "-";
+  }
+}
+function labelWeight(v?: QuizAnswers["weight"]) {
+  switch (v) {
+    case "lt60": return "до 60 кг";
+    case "60_90": return "60–90 кг";
+    case "90_120": return "90–120 кг";
+    case "gt120": return "120+ кг";
+    default: return "-";
+  }
+}
+function labelPose(v?: QuizAnswers["pose"]) {
+  switch (v) {
+    case "side": return "на боку";
+    case "back": return "на спине";
+    case "stomach": return "на животе";
+    case "mixed": return "меняю позы";
+    default: return "-";
+  }
+}
+function labelPain(v?: QuizAnswers["pain"]) {
+  switch (v) {
+    case "often": return "часто";
+    case "sometimes": return "иногда";
+    case "rarely": return "редко";
+    case "no": return "нет";
+    default: return "-";
+  }
+}
+function labelMattressAge(v?: QuizAnswers["mattress_age"]) {
+  switch (v) {
+    case "lt3": return "меньше 3 лет";
+    case "3_7": return "3–7 лет";
+    case "gt7": return "больше 7 лет";
+    case "unknown": return "не знаю";
+    default: return "-";
+  }
+}
+function labelYesNo(v?: "yes" | "no" | undefined) {
+  switch (v) {
+    case "yes": return "да";
+    case "no": return "нет";
+    default: return "-";
+  }
+}
+function labelPartner(v?: QuizAnswers["partner"]) {
+  switch (v) {
+    case "alone": return "один";
+    case "with": return "с партнёром";
+    default: return "-";
+  }
+}
+function labelHot(v?: QuizAnswers["hot"]) {
+  switch (v) {
+    case "yes": return "да";
+    case "sometimes": return "иногда";
+    case "no": return "нет";
+    default: return "-";
+  }
+}
+
 function computeQuizResult(answers: QuizAnswers) {
-  // Простейшая скоринговая модель (можно усилить позже)
   let score = 10;
 
-  // боли
   if (answers.pain === "often") score -= 4;
   else if (answers.pain === "sometimes") score -= 2;
   else if (answers.pain === "rarely") score -= 1;
 
-  // возраст матраса
   if (answers.mattress_age === "gt7") score -= 3;
   else if (answers.mattress_age === "3_7") score -= 2;
   else if (answers.mattress_age === "unknown") score -= 1;
 
-  // поза
   if (answers.pose === "stomach") score -= 2;
   else if (answers.pose === "mixed") score -= 1;
 
-  // вес (условно: выше вес — больше требований к поддержке)
   if (answers.weight === "gt120") score -= 2;
   else if (answers.weight === "90_120") score -= 1;
 
-  // жарко ночью
   if (answers.hot === "yes") score -= 1;
 
   if (score < 1) score = 1;
 
-  // Рекомендация модели (условно, под твою линейку)
   let model = "Spinal Duo";
   let reason = "универсальная поддержка позвоночника и комфорт для большинства поз сна.";
 
@@ -338,8 +412,10 @@ function computeQuizResult(answers: QuizAnswers) {
     reason = "даёт ровную поддержку поясницы и естественный изгиб позвоночника при сне на спине.";
   }
 
-  // Если часто болит + старый матрас — усиливаем “строгость” рекомендации
-  if ((answers.pain === "often" || answers.pain === "sometimes") && (answers.mattress_age === "3_7" || answers.mattress_age === "gt7")) {
+  if (
+    (answers.pain === "often" || answers.pain === "sometimes") &&
+    (answers.mattress_age === "3_7" || answers.mattress_age === "gt7")
+  ) {
     model = "Spinal Duo";
     reason = "при болях и изношенном матрасе важнее стабильная поддержка и выравнивание осанки во сне.";
   }
@@ -347,12 +423,12 @@ function computeQuizResult(answers: QuizAnswers) {
   return { score, model, reason };
 }
 
-function quizResultText(result: { score: number; model: string; reason: string }) {
+function quizResultTextHTML(result: { score: number; model: string; reason: string }) {
   return (
-    `✅ *Результат теста*\n\n` +
-    `Ваш балл по сну: *${result.score}/10*\n` +
-    `Рекомендация: *${result.model}*\n` +
-    `Почему: ${result.reason}\n\n` +
+    `✅ <b>Результат теста</b>\n\n` +
+    `Ваш балл по сну: <b>${result.score}/10</b>\n` +
+    `Рекомендация: <b>${escapeHtml(result.model)}</b>\n` +
+    `Почему: ${escapeHtml(result.reason)}\n\n` +
     `🛍️ Откройте каталог — покажем подходящие варианты.`
   );
 }
@@ -364,45 +440,41 @@ function afterQuizKeyboard() {
   ]);
 }
 
-function prettyLine(label: string, value: string) {
-  return `• *${label}:* ${value}`;
-}
-
 async function sendQuizLeadToManagersAndGroup(from: any, answers: QuizAnswers, result: { score: number; model: string; reason: string }) {
   const label = userLabelFrom(from);
-  const uid = from?.id;
+  const uid = String(from?.id || "");
 
   const name = answers.contact_name || "-";
   const phone = answers.contact_phone || "-";
   const address = answers.contact_address ? answers.contact_address : "(не указан)";
 
   const msg =
-    `🧠 *Лид из квиза «Тест на сон»*\n\n` +
-    `${prettyLine("Клиент", label)}\n` +
-    `${prettyLine("ID", `\`${uid}\``)}\n\n` +
-    `📋 *Контакты*\n` +
-    `${prettyLine("Имя", name)}\n` +
-    `${prettyLine("Телефон", phone)}\n` +
-    `${prettyLine("Адрес", address)}\n\n` +
-    `🎯 *Результат*\n` +
-    `${prettyLine("Балл", `${result.score}/10`)}\n` +
-    `${prettyLine("Модель", result.model)}\n` +
-    `${prettyLine("Почему", result.reason)}\n\n` +
-    `🧾 *Ответы*\n` +
-    `${prettyLine("Возраст", answers.age || "-")}\n` +
-    `${prettyLine("Вес", answers.weight || "-")}\n` +
-    `${prettyLine("Поза", answers.pose || "-")}\n` +
-    `${prettyLine("Боли", answers.pain || "-")}\n` +
-    `${prettyLine("Матрас (возраст)", answers.mattress_age || "-")}\n` +
-    `${prettyLine("Аллергия/астма", answers.allergy || "-")}\n` +
-    `${prettyLine("Партнёр", answers.partner || "-")}\n` +
-    `${prettyLine("Жарко ночью", answers.hot || "-")}`;
+    `🧠 <b>Лид из квиза «Тест на сон»</b>\n\n` +
+    `${htmlLine("Клиент", label)}\n` +
+    `${htmlLine("ID", uid)}\n\n` +
+    `📋 <b>Контакты</b>\n` +
+    `${htmlLine("Имя", name)}\n` +
+    `${htmlLine("Телефон", phone)}\n` +
+    `${htmlLine("Адрес", address)}\n\n` +
+    `🎯 <b>Результат</b>\n` +
+    `${htmlLine("Балл", `${result.score}/10`)}\n` +
+    `${htmlLine("Рекомендация", result.model)}\n` +
+    `${htmlLine("Почему", result.reason)}\n\n` +
+    `🧾 <b>Ответы</b>\n` +
+    `${htmlLine("Возраст", labelAge(answers.age))}\n` +
+    `${htmlLine("Вес", labelWeight(answers.weight))}\n` +
+    `${htmlLine("Поза", labelPose(answers.pose))}\n` +
+    `${htmlLine("Боли", labelPain(answers.pain))}\n` +
+    `${htmlLine("Матрас (возраст)", labelMattressAge(answers.mattress_age))}\n` +
+    `${htmlLine("Аллергия/астма", labelYesNo(answers.allergy))}\n` +
+    `${htmlLine("Партнёр", labelPartner(answers.partner))}\n` +
+    `${htmlLine("Жарко ночью", labelHot(answers.hot))}`;
 
   // менеджерам
-  await sendToManagers(msg, { parse_mode: "Markdown" });
+  await sendToManagers(msg, { parse_mode: "HTML" });
 
   // дубль в закрытую группу контроля (TELEGRAM_CHAT_ID)
-  await sendToStaffGroup(msg, { parse_mode: "Markdown" });
+  await sendToStaffGroup(msg, { parse_mode: "HTML" });
 }
 
 /**
@@ -413,14 +485,13 @@ async function sendQuizLeadToManagersAndGroup(from: any, answers: QuizAnswers, r
 bot.start(async (ctx) => {
   const payload = (ctx.startPayload || "").trim();
 
-  // deep-link: /start quiz
   if (payload === "quiz") {
-    await ctx.reply(quizIntroText(), { parse_mode: "Markdown" });
+    await ctx.reply(quizIntroTextHTML(), { parse_mode: "HTML" });
     const session: QuizSession = { step: "age", answers: {} };
     quizSessionByUser.set(ctx.from!.id, session);
 
-    const sent = await ctx.reply(quizQuestionText("age"), {
-      parse_mode: "Markdown",
+    const sent = await ctx.reply(quizQuestionTextHTML("age"), {
+      parse_mode: "HTML",
       ...(quizKeyboard("age") as any),
     });
 
@@ -428,14 +499,12 @@ bot.start(async (ctx) => {
     return;
   }
 
-  // deep-link: /start support
   if (payload === "support") {
-    await ctx.reply(supportStartText(), { parse_mode: "Markdown" });
+    await ctx.reply(supportStartTextHTML(), { parse_mode: "HTML" });
     return;
   }
 
-  // default
-  await ctx.reply(mainMenuText(), { parse_mode: "Markdown", ...mainMenuKeyboard() });
+  await ctx.reply(mainMenuTextHTML(), { parse_mode: "HTML", ...mainMenuKeyboard() });
 });
 
 bot.help(async (ctx) => {
@@ -448,7 +517,7 @@ bot.command("menu", async (ctx) => {
     type: "web_app",
     web_app: { url: WEB_APP_URL },
   });
-  await ctx.reply(mainMenuText(), { parse_mode: "Markdown", ...mainMenuKeyboard() });
+  await ctx.reply(mainMenuTextHTML(), { parse_mode: "HTML", ...mainMenuKeyboard() });
 });
 
 /**
@@ -458,7 +527,7 @@ bot.command("menu", async (ctx) => {
  */
 bot.action("SUPPORT_OPEN", async (ctx) => {
   await ctx.answerCbQuery();
-  await ctx.reply(supportStartText(), { parse_mode: "Markdown" });
+  await ctx.reply(supportStartTextHTML(), { parse_mode: "HTML" });
 });
 
 bot.action("QUIZ_OPEN", async (ctx) => {
@@ -467,14 +536,13 @@ bot.action("QUIZ_OPEN", async (ctx) => {
   const fromId = ctx.from?.id;
   if (!fromId) return;
 
-  // стартуем заново
   const session: QuizSession = { step: "age", answers: {} };
   quizSessionByUser.set(fromId, session);
 
-  await ctx.reply(quizIntroText(), { parse_mode: "Markdown" });
+  await ctx.reply(quizIntroTextHTML(), { parse_mode: "HTML" });
 
-  const sent = await ctx.reply(quizQuestionText("age"), {
-    parse_mode: "Markdown",
+  const sent = await ctx.reply(quizQuestionTextHTML("age"), {
+    parse_mode: "HTML",
     ...(quizKeyboard("age") as any),
   });
 
@@ -488,10 +556,10 @@ bot.command("quiz", async (ctx) => {
   const session: QuizSession = { step: "age", answers: {} };
   quizSessionByUser.set(fromId, session);
 
-  await ctx.reply(quizIntroText(), { parse_mode: "Markdown" });
+  await ctx.reply(quizIntroTextHTML(), { parse_mode: "HTML" });
 
-  const sent = await ctx.reply(quizQuestionText("age"), {
-    parse_mode: "Markdown",
+  const sent = await ctx.reply(quizQuestionTextHTML("age"), {
+    parse_mode: "HTML",
     ...(quizKeyboard("age") as any),
   });
 
@@ -501,8 +569,8 @@ bot.command("quiz", async (ctx) => {
 /**
  * =========================
  * QUIZ callback handler (красивое editMessageText)
- * =========================
  * callback_data: Q:<step>:<value>
+ * =========================
  */
 bot.action(/^Q:([^:]+):(.+)$/, async (ctx) => {
   await ctx.answerCbQuery();
@@ -525,7 +593,6 @@ bot.action(/^Q:([^:]+):(.+)$/, async (ctx) => {
     return;
   }
 
-  // записываем ответ
   if (step === "age") session.answers.age = value as any;
   if (step === "weight") session.answers.weight = value as any;
   if (step === "pose") session.answers.pose = value as any;
@@ -535,15 +602,14 @@ bot.action(/^Q:([^:]+):(.+)$/, async (ctx) => {
   if (step === "partner") session.answers.partner = value as any;
   if (step === "hot") session.answers.hot = value as any;
 
-  // следующий шаг
   const ns = nextQuizStep(step);
   session.step = ns;
 
-  // если закончили кнопочные вопросы
   if (ns === "done_buttons") {
     const result = computeQuizResult(session.answers);
+    session.lastResult = result;
 
-    // Красиво заменяем последний вопрос на “готово”
+    // красиво заменим последний вопрос на “готово”
     if (session.msg) {
       try {
         await bot.telegram.editMessageText(
@@ -551,46 +617,43 @@ bot.action(/^Q:([^:]+):(.+)$/, async (ctx) => {
           session.msg.messageId,
           undefined,
           "✅ Тест завершён! Спасибо 🙌",
-          { parse_mode: "Markdown" }
+          { parse_mode: "HTML" }
         );
-      } catch (e) {
-        // не критично
-      }
+      } catch (e) {}
     }
 
-    // Показываем результат клиенту отдельным сообщением (чтобы точно было видно)
-    await ctx.reply(quizResultText(result), {
-      parse_mode: "Markdown",
+    // покажем результат клиенту
+    await ctx.reply(quizResultTextHTML(result), {
+      parse_mode: "HTML",
       ...(afterQuizKeyboard() as any),
     });
 
-    // просим контакты
+    // собираем контакты
     session.step = "contact_name";
-    await ctx.reply("👤 Напишите *имя* (обязательно):", { parse_mode: "Markdown" });
+    await ctx.reply("👤 Напишите <b>имя</b> (обязательно):", { parse_mode: "HTML" });
     return;
   }
 
-  // иначе продолжаем красиво edit-ом того же сообщения
+  // продолжаем красиво edit-ом того же сообщения
   if (session.msg) {
     try {
       await bot.telegram.editMessageText(
         session.msg.chatId,
         session.msg.messageId,
         undefined,
-        quizQuestionText(ns),
-        { parse_mode: "Markdown", ...(quizKeyboard(ns) as any) }
+        quizQuestionTextHTML(ns),
+        { parse_mode: "HTML", ...(quizKeyboard(ns) as any) }
       );
     } catch (e) {
-      // fallback: если edit не прошёл — просто отправим новое
-      const sent = await ctx.reply(quizQuestionText(ns), {
-        parse_mode: "Markdown",
+      const sent = await ctx.reply(quizQuestionTextHTML(ns), {
+        parse_mode: "HTML",
         ...(quizKeyboard(ns) as any),
       });
       session.msg = { chatId: sent.chat.id as any, messageId: sent.message_id as any };
     }
   } else {
-    const sent = await ctx.reply(quizQuestionText(ns), {
-      parse_mode: "Markdown",
+    const sent = await ctx.reply(quizQuestionTextHTML(ns), {
+      parse_mode: "HTML",
       ...(quizKeyboard(ns) as any),
     });
     session.msg = { chatId: sent.chat.id as any, messageId: sent.message_id as any };
@@ -610,7 +673,7 @@ bot.on(message("text"), async (ctx) => {
   const chatType = ctx.chat?.type;
 
   /**
-   * 1) Если менеджер в режиме ответа поддержки
+   * 1) Менеджер отвечает клиенту (поддержка)
    */
   if (SUPPORT_MANAGERS.includes(fromId) && managerReplyMode.has(fromId)) {
     const userId = managerReplyMode.get(fromId)!;
@@ -618,24 +681,22 @@ bot.on(message("text"), async (ctx) => {
     try {
       await bot.telegram.sendMessage(
         userId,
-        `💬 *Ответ поддержки ErgoSpine*\n\n${textRaw}`,
-        { parse_mode: "Markdown" }
+        `💬 <b>Ответ поддержки ErgoSpine</b>\n\n${escapeHtml(textRaw)}`,
+        { parse_mode: "HTML" }
       );
       await ctx.reply("✅ Сообщение отправлено клиенту.");
     } catch (e) {
-      await ctx.reply(
-        "❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его."
-      );
+      await ctx.reply("❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его.");
     }
     return;
   }
 
   /**
-   * 2) Если идёт квиз — собираем контакты
+   * 2) Квиз — сбор контактов (только в private)
    */
   const q = quizSessionByUser.get(fromId);
   if (q && chatType === "private") {
-    // имя
+    // Имя
     if (q.step === "contact_name") {
       if (textRaw.length < 2) {
         await ctx.reply("Имя слишком короткое. Напишите, пожалуйста, имя ещё раз:");
@@ -643,11 +704,11 @@ bot.on(message("text"), async (ctx) => {
       }
       q.answers.contact_name = textRaw;
       q.step = "contact_phone";
-      await ctx.reply("📞 Напишите *телефон* (обязательно):", { parse_mode: "Markdown" });
+      await ctx.reply("📞 Напишите <b>телефон</b> (обязательно):", { parse_mode: "HTML" });
       return;
     }
 
-    // телефон
+    // Телефон
     if (q.step === "contact_phone") {
       const cleaned = textRaw.replace(/[^\d+]/g, "");
       if (cleaned.length < 10) {
@@ -656,29 +717,27 @@ bot.on(message("text"), async (ctx) => {
       }
       q.answers.contact_phone = textRaw;
       q.step = "contact_address";
-      await ctx.reply("📍 Адрес доставки (по желанию). Если не хотите — отправьте просто `-`.", {
-        parse_mode: "Markdown",
+      await ctx.reply("📍 Адрес доставки (по желанию). Если не хотите — отправьте просто <code>-</code>.", {
+        parse_mode: "HTML",
       });
       return;
     }
 
-    // адрес
+    // Адрес
     if (q.step === "contact_address") {
       q.answers.contact_address = textRaw === "-" ? "" : textRaw;
 
-      const result = computeQuizResult(q.answers);
+      const result = q.lastResult || computeQuizResult(q.answers);
 
-      await ctx.reply(
-        "✅ Спасибо! Данные получены.\nМенеджер свяжется с вами и поможет подобрать лучший вариант."
-      );
+      await ctx.reply("✅ Спасибо! Данные получены.\nМенеджер свяжется с вами и поможет подобрать лучший вариант.");
 
-      // Ещё раз отправим результат — чтобы он точно был у клиента в чате
-      await ctx.reply(quizResultText(result), {
-        parse_mode: "Markdown",
+      // клиенту результат ещё раз (чтобы точно было видно в конце)
+      await ctx.reply(quizResultTextHTML(result), {
+        parse_mode: "HTML",
         ...(afterQuizKeyboard() as any),
       });
 
-      // ЛИД менеджерам + дубль в закрытую группу (TELEGRAM_CHAT_ID)
+      // менеджерам + дубль в закрытую группу
       await sendQuizLeadToManagersAndGroup(ctx.from, q.answers, result);
 
       // закрываем сессию
@@ -688,28 +747,26 @@ bot.on(message("text"), async (ctx) => {
   }
 
   /**
-   * 3) Поддержка: только private сообщения от обычного пользователя -> создаём тикет
+   * 3) Поддержка: private сообщения от клиента -> создаём тикет
    */
   if (chatType === "private") {
     const ticketId = ensureTicket(fromId);
     const userLabel = userLabelFrom(ctx.from);
 
     const msg =
-      `🆘 *Запрос в поддержку*\n\n` +
-      `${prettyLine("Тикет", `#${ticketId}`)}\n` +
-      `${prettyLine("Клиент", userLabel)}\n` +
-      `${prettyLine("ID", `\`${fromId}\``)}\n\n` +
-      `💬 Сообщение:\n${textRaw}`;
+      `🆘 <b>Запрос в поддержку</b>\n\n` +
+      `${htmlLine("Тикет", `#${ticketId}`)}\n` +
+      `${htmlLine("Клиент", userLabel)}\n` +
+      `${htmlLine("ID", String(fromId))}\n\n` +
+      `💬 <b>Сообщение:</b>\n${escapeHtml(textRaw)}`;
 
     // менеджерам
-    await sendToManagers(msg, { parse_mode: "Markdown", ...managerTicketKeyboard(ticketId) });
+    await sendToManagers(msg, { parse_mode: "HTML", ...managerTicketKeyboard(ticketId) });
 
-    // дубль в закрытую группу контроля (если хочешь убрать — просто удали эту строку)
-    await sendToStaffGroup(msg, { parse_mode: "Markdown" });
+    // дубль в закрытую группу контроля
+    await sendToStaffGroup(msg, { parse_mode: "HTML" });
 
-    await ctx.reply(
-      "✅ Принято! Менеджер уже получил ваш запрос.\nЕсли нужно — добавьте детали (город, рост/вес, поза сна)."
-    );
+    await ctx.reply("✅ Принято! Менеджер уже получил ваш запрос.\nЕсли нужно — добавьте детали (город, рост/вес, поза сна).");
     return;
   }
 });
@@ -767,7 +824,7 @@ bot.command("cancel", async (ctx) => {
 
 /**
  * =========================
- * EXISTING: shipping/payment (оставил как было, только тексты можно русифицировать при желании)
+ * EXISTING: shipping/payment
  * =========================
  */
 bot.on("shipping_query", async (ctx) => {
