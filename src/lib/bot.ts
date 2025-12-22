@@ -1,28 +1,19 @@
+// src/lib/bot.ts
 import "dotenv/config";
 import { Markup, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { LabeledPrice } from "@telegraf/types";
 import woo from "@/lib/woo";
 
-export const SECRET_HASH = process.env.TELEGRAM_BOT_SECRET!;
+export const SECRET_HASH = process.env.TELEGRAM_BOT_SECRET!!;
 
-/**
- * PUBLIC_URL — базовый домен (ОБЯЗАТЕЛЬНО для webhook)
- * Пример: https://shop.ergospine.ru
- */
-const PUBLIC_URL =
-  process.env.PUBLIC_URL ||
-  (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : "");
+const BASE_PATH =
+  process.env.NEXT_PUBLIC_BASE_PATH ||
+  `https://${process.env.NEXT_PUBLIC_VERCEL_URL!!}`;
 
-const BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "/";
+const WEBHOOK_URL = `${BASE_PATH}/api/telegram-hook?secret_hash=${SECRET_HASH}`;
+const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!!;
 
-/** URL мини-приложения (каталога) */
-const WEBAPP_URL = `${PUBLIC_URL}${BASE_PATH === "/" ? "" : BASE_PATH}`;
-
-/** URL вебхука */
-const WEBHOOK_URL = `${PUBLIC_URL}/api/telegram-hook?secret_hash=${SECRET_HASH}`;
-
-const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!;
 const bot = new Telegraf(BOT_TOKEN);
 
 /** =========================
@@ -41,12 +32,21 @@ function parseManagerIds(): number[] {
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
-const SUPPORT_MANAGERS = Array.from(new Set(parseManagerIds()));
+const SUPPORT_MANAGERS = parseManagerIds();
 
+/**
+ * Простая in-memory маршрутизация поддержки:
+ * - ticketByUser: userId -> ticketId
+ * - ticketToUser: ticketId -> userId
+ * - managerReplyMode: managerId -> userId (кому сейчас отвечает)
+ *
+ * ВАЖНО: хранится в памяти процесса. После рестарта PM2 — сбросится.
+ * Для MVP нормально. Для “железно” — Redis/DB.
+ */
 let ticketSeq = 1000;
-const ticketByUser = new Map<number, number>(); // userId -> ticketId
-const ticketToUser = new Map<number, number>(); // ticketId -> userId
-const managerReplyMode = new Map<number, number>(); // managerId -> userId
+const ticketByUser = new Map<number, number>();
+const ticketToUser = new Map<number, number>();
+const managerReplyMode = new Map<number, number>();
 
 function makeUserLabel(ctx: any) {
   const u = ctx.from;
@@ -55,26 +55,17 @@ function makeUserLabel(ctx: any) {
   return `${full || "Пользователь"} ${username}`.trim();
 }
 
-/** Красивое первое сообщение поддержки */
 function supportStartText() {
   return (
     "🆘 *Поддержка ErgoSpine*\n\n" +
-    "Напишите сюда свой вопрос — менеджер ответит вам *в этом же чате*.\n\n" +
-    "Чтобы мы помогли быстрее, укажите (можно в одном сообщении):\n" +
-    "1) 🛏️ что подобрать: *матрас* или *подушка*\n" +
-    "2) 📏 рост/вес и 🤍 поза сна\n" +
-    "3) 🧠 есть ли боли: шея/поясница\n" +
-    "4) 🚚 город доставки\n\n" +
-    "📎 Можно прикреплять фото/скрины/файлы.\n" +
+    "Напишите сюда свой вопрос — и менеджер ответит вам в этом чате.\n\n" +
+    "Чтобы мы помогли быстрее, отправьте, пожалуйста:\n" +
+    "1) что хотите подобрать (матрас / подушку)\n" +
+    "2) рост/вес, поза сна\n" +
+    "3) есть ли боли (шея/поясница)\n" +
+    "4) город доставки\n\n" +
+    "📎 Можно прикреплять фото/скрины.\n" +
     "⏱ Обычно отвечаем быстро."
-  );
-}
-
-function quizIntroText() {
-  return (
-    "😴 *Тест на сон (2 минуты)*\n\n" +
-    "Ответьте на 8 вопросов — и получите персональную рекомендацию.\n" +
-    "В конце мы предложим подходящую модель и можно сразу перейти в каталог."
   );
 }
 
@@ -84,72 +75,167 @@ function storeStartText() {
 
 function storeKeyboard() {
   return Markup.inlineKeyboard([
-    [Markup.button.webApp("🛍️ Каталог", WEBAPP_URL)],
-    [Markup.button.callback("🧪 Тест на сон", "QUIZ_START")],
-    [Markup.button.callback("🆘 Поддержка", "SUPPORT_OPEN")],
+    [Markup.button.webApp("🛍️ Каталог", BASE_PATH)],
+    [
+      Markup.button.callback("🧠 Тест на сон (2 минуты)", "QUIZ_OPEN"),
+      Markup.button.callback("🆘 Поддержка", "SUPPORT_OPEN"),
+    ],
   ]);
 }
 
 function supportKeyboard() {
   return Markup.inlineKeyboard([
     [Markup.button.callback("✍️ Написать в поддержку", "SUPPORT_OPEN")],
-    [Markup.button.callback("🧪 Пройти тест на сон", "QUIZ_START")],
-    [Markup.button.webApp("🛍️ Открыть каталог", WEBAPP_URL)],
+    [Markup.button.webApp("🛍️ Открыть каталог", BASE_PATH)],
   ]);
 }
 
 /** =========================
- *  START / MENU
+ *  QUIZ (Тест на сон) — стабильная обработка callback
  *  ========================= */
-bot.start(async (ctx) => {
-  const payload = (ctx.startPayload || "").trim();
+type QuizState = {
+  step: number;
+  answers: Record<string, string>;
+};
 
-  if (payload === "support") {
-    await ctx.reply(supportStartText(), { parse_mode: "Markdown", ...supportKeyboard() });
-    return;
+const quizState = new Map<number, QuizState>();
+
+const QUIZ: Array<{
+  key: string;
+  text: string;
+  options: string[];
+}> = [
+  {
+    key: "age",
+    text: "1/8 🎂 Ваш возраст?",
+    options: ["<30", "30–45", "45–60", "60+"],
+  },
+  {
+    key: "weight",
+    text: "2/8 ⚖️ Ваш вес?",
+    options: ["<60", "60–90", "90–120", ">120"],
+  },
+  {
+    key: "pose",
+    text: "3/8 🛏 Основная поза сна?",
+    options: ["На боку", "На спине", "На животе", "Меняю"],
+  },
+  {
+    key: "pain",
+    text: "4/8 😣 Просыпаетесь с болью в спине/шее?",
+    options: ["Да, часто", "Иногда", "Редко", "Нет"],
+  },
+  {
+    key: "mattress_age",
+    text: "5/8 🧾 Сколько лет вашему матрасу?",
+    options: ["<3", "3–7", ">7", "Не знаю"],
+  },
+  {
+    key: "allergy",
+    text: "6/8 🌿 Есть аллергия/астма?",
+    options: ["Да", "Нет", "Не уверен(а)"],
+  },
+  {
+    key: "partner",
+    text: "7/8 👥 Спите один или с партнёром?",
+    options: ["Один(а)", "С партнёром"],
+  },
+  {
+    key: "hot",
+    text: "8/8 🔥 Бывает жарко ночью?",
+    options: ["Да", "Иногда", "Нет"],
+  },
+];
+
+function quizIntroText() {
+  return (
+    "😴 *Тест на сон ErgoSpine*\n\n" +
+    "Ответьте на 8 коротких вопросов — и я дам персональную рекомендацию.\n" +
+    "⏱ Время: ~2 минуты.\n\n" +
+    "Нажмите «Начать» 👇"
+  );
+}
+
+function quizStartKeyboard() {
+  return Markup.inlineKeyboard([
+    [Markup.button.callback("▶️ Начать тест", "QUIZ_START")],
+    [Markup.button.webApp("🛍️ Открыть каталог", BASE_PATH)],
+  ]);
+}
+
+function quizKeyboard(step: number) {
+  return Markup.inlineKeyboard(
+    QUIZ[step].options.map((opt) =>
+      Markup.button.callback(opt, `QUIZ:${step}:${encodeURIComponent(opt)}`)
+    ),
+    { columns: 2 }
+  );
+}
+
+async function sendQuizStep(ctx: any, userId: number) {
+  const state = quizState.get(userId);
+  if (!state) return;
+  const q = QUIZ[state.step];
+  await ctx.reply(q.text, quizKeyboard(state.step));
+}
+
+function scoreQuiz(answers: Record<string, string>) {
+  // Простой скоринг: чем больше “рисковых” ответов — тем ниже оценка сна.
+  let score = 10;
+
+  const age = answers.age || "";
+  const weight = answers.weight || "";
+  const pose = answers.pose || "";
+  const pain = answers.pain || "";
+  const mattressAge = answers.mattress_age || "";
+  const allergy = answers.allergy || "";
+  const partner = answers.partner || "";
+  const hot = answers.hot || "";
+
+  if (age === "60+") score -= 1;
+  if (weight === ">120" || weight === "90–120") score -= 1;
+
+  if (pose === "На животе") score -= 2;
+  if (pose === "Меняю") score -= 1;
+
+  if (pain === "Да, часто") score -= 3;
+  if (pain === "Иногда") score -= 2;
+  if (pain === "Редко") score -= 1;
+
+  if (mattressAge === ">7") score -= 2;
+  if (mattressAge === "3–7") score -= 1;
+  if (mattressAge === "Не знаю") score -= 1;
+
+  if (allergy === "Да") score -= 1;
+  if (hot === "Да") score -= 1;
+  if (partner === "С партнёром") score -= 1;
+
+  if (score < 1) score = 1;
+  if (score > 10) score = 10;
+
+  let model = "Spinal Duo";
+  let reason =
+    "универсальная поддержка позвоночника и баланс мягкости/упругости.";
+
+  if (pain === "Да, часто" || pose === "На боку") {
+    model = "Back Stretch";
+    reason = "отлично разгружает плечо/таз и помогает при сне на боку.";
+  }
+  if (pose === "На спине" && (pain === "Иногда" || pain === "Да, часто")) {
+    model = "Lavender Duo";
+    reason = "стабильная поддержка поясницы и комфорт на спине.";
+  }
+  if (hot === "Да") {
+    // как пример: можно рекомендовать более “прохладные” решения/наматрасники
+    // но оставим матрас и добавим акцент
+    reason += " Плюс стоит выбрать более “дышащие” материалы для комфорта ночью.";
   }
 
-  if (payload === "quiz") {
-    await ctx.reply(quizIntroText(), { parse_mode: "Markdown" });
-    await startQuiz(ctx.from!.id, ctx);
-    return;
-  }
+  return { score, model, reason };
+}
 
-  await ctx.reply(storeStartText(), storeKeyboard());
-});
-
-bot.command("support", async (ctx) => {
-  await ctx.reply(supportStartText(), { parse_mode: "Markdown", ...supportKeyboard() });
-});
-
-bot.command("quiz", async (ctx) => {
-  await ctx.reply(quizIntroText(), { parse_mode: "Markdown" });
-  await startQuiz(ctx.from!.id, ctx);
-});
-
-bot.action("SUPPORT_OPEN", async (ctx) => {
-  await ctx.answerCbQuery();
-  await ctx.reply(supportStartText(), { parse_mode: "Markdown", ...supportKeyboard() });
-});
-
-bot.help((ctx) => ctx.reply("Напишите /start чтобы открыть меню. /support — поддержка, /quiz — тест."));
-
-bot.command("menu", (ctx) =>
-  ctx.setChatMenuButton({
-    text: "Каталог",
-    type: "web_app",
-    web_app: { url: WEBAPP_URL },
-  })
-);
-
-/** =========================
- *  SUPPORT CORE
- *  ========================= */
 async function sendToManagers(text: string, extra?: any) {
-  if (!SUPPORT_MANAGERS.length) {
-    console.log("No SUPPORT_MANAGERS configured");
-    return;
-  }
+  if (!SUPPORT_MANAGERS.length) return;
   for (const mid of SUPPORT_MANAGERS) {
     try {
       await bot.telegram.sendMessage(mid, text, extra);
@@ -159,6 +245,137 @@ async function sendToManagers(text: string, extra?: any) {
   }
 }
 
+/** =========================
+ *  START / MENU
+ *  ========================= */
+bot.start(async (ctx) => {
+  const payload = (ctx.startPayload || "").trim();
+
+  if (payload === "support") {
+    await ctx.reply(supportStartText(), {
+      parse_mode: "Markdown",
+      ...supportKeyboard(),
+    });
+    return;
+  }
+
+  if (payload === "quiz") {
+    await ctx.reply(quizIntroText(), { parse_mode: "Markdown", ...quizStartKeyboard() });
+    return;
+  }
+
+  await ctx.reply(storeStartText(), storeKeyboard());
+});
+
+bot.action("SUPPORT_OPEN", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(supportStartText(), { parse_mode: "Markdown" });
+});
+
+bot.action("QUIZ_OPEN", async (ctx) => {
+  await ctx.answerCbQuery();
+  await ctx.reply(quizIntroText(), { parse_mode: "Markdown", ...quizStartKeyboard() });
+});
+
+bot.action("QUIZ_START", async (ctx) => {
+  await ctx.answerCbQuery();
+  const userId = ctx.from.id;
+
+  quizState.set(userId, { step: 0, answers: {} });
+
+  await ctx.reply(
+    "✅ Поехали! Отвечайте кнопками — так быстрее 🙂",
+    { parse_mode: "Markdown" }
+  );
+  await sendQuizStep(ctx, userId);
+});
+
+bot.command("quiz", async (ctx) => {
+  const userId = ctx.from.id;
+  quizState.set(userId, { step: 0, answers: {} });
+
+  await ctx.reply(
+    quizIntroText(),
+    { parse_mode: "Markdown", ...quizStartKeyboard() }
+  );
+});
+
+bot.help((ctx) => ctx.reply("Напишите /start чтобы открыть меню.\nКоманда квиза: /quiz"));
+
+bot.command("menu", (ctx) =>
+  ctx.setChatMenuButton({
+    text: "Каталог",
+    type: "web_app",
+    web_app: { url: BASE_PATH },
+  })
+);
+
+/** =========================
+ *  QUIZ: ответы — ВАЖНО: answerCbQuery() сразу!
+ *  ========================= */
+bot.action(/^QUIZ:(\d+):(.+)$/, async (ctx) => {
+  // 🔥 обязательно СРАЗУ
+  await ctx.answerCbQuery();
+
+  const userId = ctx.from.id;
+  const step = Number((ctx.match as any)[1]);
+  const value = decodeURIComponent((ctx.match as any)[2]);
+
+  const state = quizState.get(userId);
+  if (!state || state.step !== step) {
+    await ctx.reply("⚠️ Похоже, тест уже обновился. Нажмите /quiz чтобы начать заново.");
+    return;
+  }
+
+  const question = QUIZ[step];
+  state.answers[question.key] = value;
+  state.step += 1;
+
+  // конец квиза
+  if (state.step >= QUIZ.length) {
+    const answers = state.answers;
+    quizState.delete(userId);
+
+    const { score, model, reason } = scoreQuiz(answers);
+
+    // отправим менеджерам лид (опционально)
+    const userLabel = makeUserLabel(ctx);
+    const leadText =
+      `🧠 *Лид из квиза (Тест на сон)*\n` +
+      `Клиент: ${userLabel}\n` +
+      `ID: \`${userId}\`\n` +
+      `Оценка сна: *${score}/10*\n` +
+      `Рекомендация: *${model}* — ${reason}\n\n` +
+      `Ответы:\n` +
+      Object.entries(answers)
+        .map(([k, v]) => `• ${k}: ${v}`)
+        .join("\n");
+
+    await sendToManagers(leadText, { parse_mode: "Markdown" });
+
+    await ctx.reply(
+      `✅ *Готово! Ваш результат: ${score}/10*\n\n` +
+        `Рекомендация: *${model}*\n` +
+        `Почему: ${reason}\n\n` +
+        `Хотите посмотреть варианты в каталоге?`,
+      {
+        parse_mode: "Markdown",
+        ...Markup.inlineKeyboard([
+          [Markup.button.webApp("🛍️ Открыть каталог", BASE_PATH)],
+          [Markup.button.callback("🆘 Задать вопрос менеджеру", "SUPPORT_OPEN")],
+        ]),
+      }
+    );
+
+    return;
+  }
+
+  await sendQuizStep(ctx, userId);
+});
+
+/** =========================
+ *  SUPPORT: менеджерские кнопки и режим ответа
+ *  ========================= */
 function ensureTicket(userId: number): number {
   let tid = ticketByUser.get(userId);
   if (!tid) {
@@ -191,8 +408,10 @@ bot.action(/^SUPPORT_REPLY:(\d+)$/, async (ctx) => {
   managerReplyMode.set(managerId, userId);
 
   await ctx.reply(
-    `✍️ Режим ответа включён.\nСледующее ваше сообщение уйдёт клиенту (тикет #${ticketId}).\n\nОтмена: /cancel`,
-    Markup.inlineKeyboard([[Markup.button.callback("✅ Закрыть тикет", `SUPPORT_CLOSE:${ticketId}`)]])
+    `✍️ Режим ответа включён.\nСледующее ваше сообщение уйдёт клиенту (тикет #${ticketId}).\n\nЧтобы отменить — отправьте /cancel`,
+    Markup.inlineKeyboard([
+      [Markup.button.callback("✅ Закрыть тикет", `SUPPORT_CLOSE:${ticketId}`)],
+    ])
   );
 });
 
@@ -206,9 +425,17 @@ bot.action(/^SUPPORT_CLOSE:(\d+)$/, async (ctx) => {
   if (userId) {
     ticketToUser.delete(ticketId);
     ticketByUser.delete(userId);
+    try {
+      await bot.telegram.sendMessage(
+        userId,
+        "✅ Ваш диалог с поддержкой закрыт. Если появятся вопросы — просто напишите снова или нажмите /start."
+      );
+    } catch (e) {
+      // клиент мог не писать боту или заблокировать
+    }
   }
-  if (managerId) managerReplyMode.delete(managerId);
 
+  if (managerId) managerReplyMode.delete(managerId);
   await ctx.reply(`✅ Тикет #${ticketId} закрыт.`);
 });
 
@@ -222,366 +449,58 @@ bot.command("cancel", async (ctx) => {
   await ctx.reply("Нечего отменять 🙂");
 });
 
-/** ====== Manager -> Client (text + media) ====== */
-async function forwardManagerToClient(ctx: any, userId: number) {
-  const msg: any = ctx.message;
+/**
+ * Сообщения:
+ * - если пишет менеджер и он в replyMode -> отправляем клиенту
+ * - если пишет пользователь -> создаём тикет и шлём менеджерам
+ */
+bot.on(message("text"), async (ctx) => {
+  const chatType = ctx.chat?.type;
+  const fromId = ctx.from?.id;
+  if (!fromId) return;
 
-  if (msg.text) {
-    await bot.telegram.sendMessage(userId, `💬 *Ответ поддержки*\n\n${msg.text}`, { parse_mode: "Markdown" });
-    await ctx.reply("✅ Отправлено клиенту.");
+  // менеджер отвечает клиенту
+  if (SUPPORT_MANAGERS.includes(fromId) && managerReplyMode.has(fromId)) {
+    const userId = managerReplyMode.get(fromId)!;
+    const text = ctx.message.text;
+
+    try {
+      await bot.telegram.sendMessage(userId, `💬 Ответ поддержки:\n\n${text}`);
+      await ctx.reply("✅ Отправлено клиенту.");
+    } catch (e) {
+      await ctx.reply(
+        "❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его."
+      );
+    }
     return;
   }
 
-  if (msg.photo?.length) {
-    const fileId = msg.photo[msg.photo.length - 1].file_id;
-    await bot.telegram.sendPhoto(userId, fileId, { caption: "💬 Ответ поддержки" });
-    await ctx.reply("✅ Фото отправлено клиенту.");
-    return;
-  }
+  // только private поддержка
+  if (chatType !== "private") return;
 
-  if (msg.document) {
-    await bot.telegram.sendDocument(userId, msg.document.file_id, { caption: "💬 Ответ поддержки" });
-    await ctx.reply("✅ Файл отправлен клиенту.");
-    return;
-  }
+  // если пользователь прямо пишет /start — не превращаем в тикет
+  if (ctx.message.text.trim() === "/start") return;
 
-  if ("voice" in msg) {
-    await bot.telegram.sendVoice(userId, msg.voice.file_id, { caption: "💬 Ответ поддержки" });
-    await ctx.reply("✅ Голосовое отправлено клиенту.");
-    return;
-  }
-
-  await ctx.reply("Этот тип сообщения пока не поддержан. Отправьте текст/фото/файл/голосовое.");
-}
-
-/** ====== Client -> Managers (text + media) ====== */
-async function notifyManagersNewTicket(ctx: any, ticketId: number, description: string) {
-  const fromId = ctx.from.id;
+  // пользователь -> тикет
+  const ticketId = ensureTicket(fromId);
   const userLabel = makeUserLabel(ctx);
+  const text = ctx.message.text;
 
   const msg =
     `🆘 *Новый запрос поддержки*\n` +
     `Тикет: #${ticketId}\n` +
     `Клиент: ${userLabel}\n` +
     `ID: \`${fromId}\`\n\n` +
-    `${description}`;
+    `Сообщение:\n${text}`;
 
-  await sendToManagers(msg, { parse_mode: "Markdown", ...managerTicketKeyboard(ticketId) });
-}
+  await sendToManagers(msg, {
+    parse_mode: "Markdown",
+    ...managerTicketKeyboard(ticketId),
+  });
 
-bot.on(message(), async (ctx) => {
-  const chatType = ctx.chat?.type;
-  const fromId = ctx.from?.id;
-  if (!fromId) return;
-
-  // менеджер -> клиент (если включен replyMode)
-  if (SUPPORT_MANAGERS.includes(fromId) && managerReplyMode.has(fromId)) {
-    const userId = managerReplyMode.get(fromId)!;
-    try {
-      await forwardManagerToClient(ctx, userId);
-    } catch (e) {
-      await ctx.reply("❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его.");
-    }
-    return;
-  }
-
-  // клиент -> тикет (только личка)
-  if (chatType !== "private") return;
-
-  // если клиент сейчас в квизе — обработаем ниже (квиз перехватывает текст не всегда, но тут только медиа/текст без кнопок)
-  if (quizState.has(fromId)) {
-    await ctx.reply("Пожалуйста, отвечайте кнопками 🙂\nЕсли хотите выйти: /cancel_quiz");
-    return;
-  }
-
-  const ticketId = ensureTicket(fromId);
-  const m: any = ctx.message;
-
-  if (m.text) {
-    await notifyManagersNewTicket(ctx, ticketId, `Сообщение:\n${m.text}`);
-    await ctx.reply("✅ Принято! Менеджер уже получил ваш запрос.\nЕсли нужно — добавьте детали (город, рост/вес, поза сна).");
-    return;
-  }
-
-  if (m.photo?.length) {
-    await notifyManagersNewTicket(ctx, ticketId, "📷 Клиент прислал фото.");
-    const fileId = m.photo[m.photo.length - 1].file_id;
-
-    for (const mid of SUPPORT_MANAGERS) {
-      await bot.telegram
-        .sendPhoto(mid, fileId, {
-          caption: `📷 Фото от клиента. Тикет #${ticketId} (ID ${fromId})`,
-          ...managerTicketKeyboard(ticketId),
-        })
-        .catch(() => null);
-    }
-    await ctx.reply("✅ Фото принято! Менеджер уже получил ваш запрос.");
-    return;
-  }
-
-  if (m.document) {
-    await notifyManagersNewTicket(ctx, ticketId, "📎 Клиент прислал файл.");
-    for (const mid of SUPPORT_MANAGERS) {
-      await bot.telegram
-        .sendDocument(mid, m.document.file_id, {
-          caption: `📎 Файл от клиента. Тикет #${ticketId} (ID ${fromId})`,
-          ...managerTicketKeyboard(ticketId),
-        })
-        .catch(() => null);
-    }
-    await ctx.reply("✅ Файл принят! Менеджер уже получил ваш запрос.");
-    return;
-  }
-
-  if ("voice" in m) {
-    await notifyManagersNewTicket(ctx, ticketId, "🎤 Клиент прислал голосовое.");
-    for (const mid of SUPPORT_MANAGERS) {
-      await bot.telegram
-        .sendVoice(mid, m.voice.file_id, {
-          caption: `🎤 Голосовое от клиента. Тикет #${ticketId} (ID ${fromId})`,
-          ...managerTicketKeyboard(ticketId),
-        })
-        .catch(() => null);
-    }
-    await ctx.reply("✅ Голосовое принято! Менеджер уже получил ваш запрос.");
-    return;
-  }
-
-  await ctx.reply("✅ Принято! Если можно — отправьте текстом, фото, файлом или голосовым.");
-});
-
-/** =========================
- *  QUIZ (Тест на сон)
- *  ========================= */
-type QuizAnswers = {
-  age?: string;
-  weight?: string;
-  pose?: string;
-  pain?: string;
-  mattressAge?: string;
-  allergy?: string;
-  partner?: string;
-  hot?: string;
-};
-
-type QuizStep =
-  | "age"
-  | "weight"
-  | "pose"
-  | "pain"
-  | "mattressAge"
-  | "allergy"
-  | "partner"
-  | "hot"
-  | "done";
-
-const quizState = new Map<number, { step: QuizStep; answers: QuizAnswers }>();
-
-function quizQuestion(step: QuizStep) {
-  switch (step) {
-    case "age":
-      return {
-        text: "1/8 👤 Сколько вам лет?",
-        buttons: ["<30", "30–45", "45–60", ">60"],
-      };
-    case "weight":
-      return {
-        text: "2/8 ⚖️ Ваш вес?",
-        buttons: ["<60", "60–90", "90–120", ">120"],
-      };
-    case "pose":
-      return {
-        text: "3/8 🛌 Основная поза сна?",
-        buttons: ["На боку", "На спине", "На животе", "Меняю позы"],
-      };
-    case "pain":
-      return {
-        text: "4/8 🧠 Просыпаетесь с болью в спине/шее?",
-        buttons: ["Да, часто", "Иногда", "Редко", "Нет"],
-      };
-    case "mattressAge":
-      return {
-        text: "5/8 ⏳ Матрасу сколько лет?",
-        buttons: ["<3", "3–7", ">7", "Не знаю"],
-      };
-    case "allergy":
-      return {
-        text: "6/8 🌿 Есть аллергия/астма?",
-        buttons: ["Да", "Нет"],
-      };
-    case "partner":
-      return {
-        text: "7/8 🤝 Спите один или с партнёром?",
-        buttons: ["Один", "С партнёром"],
-      };
-    case "hot":
-      return {
-        text: "8/8 🔥 Жарко ли вам ночью?",
-        buttons: ["Да", "Иногда", "Нет"],
-      };
-    default:
-      return null;
-  }
-}
-
-function quizKeyboard(step: QuizStep) {
-  const q = quizQuestion(step);
-  if (!q) return undefined;
-
-  const rows = q.buttons.map((b) => [Markup.button.callback(b, `QUIZ_ANSWER:${step}:${encodeURIComponent(b)}`)]);
-  rows.push([Markup.button.callback("⛔️ Прервать тест", "QUIZ_CANCEL")]);
-  return Markup.inlineKeyboard(rows);
-}
-
-async function startQuiz(userId: number, ctxOrBot: any) {
-  quizState.set(userId, { step: "age", answers: {} });
-  const q = quizQuestion("age")!;
-  await ctxOrBot.reply(q.text, { ...quizKeyboard("age") });
-}
-
-function nextStep(step: QuizStep): QuizStep {
-  const order: QuizStep[] = ["age", "weight", "pose", "pain", "mattressAge", "allergy", "partner", "hot", "done"];
-  const idx = order.indexOf(step);
-  return order[Math.min(idx + 1, order.length - 1)];
-}
-
-function scoreAndRecommend(a: QuizAnswers) {
-  let score = 10;
-
-  if (a.pain === "Да, часто") score -= 3;
-  else if (a.pain === "Иногда") score -= 2;
-  else if (a.pain === "Редко") score -= 1;
-
-  if (a.mattressAge === ">7") score -= 3;
-  else if (a.mattressAge === "3–7") score -= 2;
-
-  if (a.hot === "Да") score -= 1;
-
-  score = Math.max(1, Math.min(10, score));
-
-  // простая логика рекомендаций (позже можно усложнить)
-  let model = "Spinal Duo";
-  let reason = "универсальный вариант по поддержке и комфорту.";
-
-  if (a.pose === "На боку") {
-    model = "Back Stretch";
-    reason = "потому что для сна на боку важна разгрузка плеча/таза и точечная поддержка.";
-  } else if (a.pose === "На спине") {
-    model = "Lavender Duo";
-    reason = "потому что для сна на спине важна стабильная поддержка поясницы и ровная геометрия.";
-  } else if (a.pain === "Да, часто") {
-    model = "Spinal Duo";
-    reason = "потому что при болях важен баланс поддержки и адаптации под позвоночник.";
-  }
-
-  return { score, model, reason };
-}
-
-bot.action("QUIZ_START", async (ctx) => {
-  await ctx.answerCbQuery();
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  await ctx.reply(quizIntroText(), { parse_mode: "Markdown" });
-  await startQuiz(userId, ctx);
-});
-
-bot.action("QUIZ_CANCEL", async (ctx) => {
-  await ctx.answerCbQuery();
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  quizState.delete(userId);
-  await ctx.reply("Ок, тест остановлен 🙂\nЕсли захотите снова — /quiz", storeKeyboard());
-});
-
-bot.command("cancel_quiz", async (ctx) => {
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  quizState.delete(userId);
-  await ctx.reply("Ок, тест остановлен 🙂\nЕсли захотите снова — /quiz");
-});
-
-bot.action(/^QUIZ_ANSWER:([^:]+):(.+)$/, async (ctx) => {
-  await ctx.answerCbQuery();
-
-  const userId = ctx.from?.id;
-  if (!userId) return;
-
-  const step = (ctx.match as any)[1] as QuizStep;
-  const val = decodeURIComponent((ctx.match as any)[2]);
-
- const st = quizState.get(userId);
-
-if (!st) {
-  await ctx.reply("Тест не активен. Нажмите /quiz чтобы начать заново.");
-  return;
-}
-
-// Если прилетел “устаревший” клик по кнопке — просто показываем текущий вопрос
-if (st.step !== step) {
-  const current = quizQuestion(st.step);
-  if (current) {
-    await ctx.reply(
-      "Поймал задержанный клик 🙂\nПродолжаем с текущего вопроса:",
-      { ...quizKeyboard(st.step) }
-    );
-    await ctx.reply(current.text, { ...quizKeyboard(st.step) });
-  } else {
-    await ctx.reply("Тест уже завершён. Нажмите /quiz чтобы начать заново.");
-  }
-  return;
-}
-
-  // сохраняем ответ
-  (st.answers as any)[step] = val;
-
-  const ns = nextStep(step);
-  if (ns === "done") {
-    quizState.delete(userId);
-    const { score, model, reason } = scoreAndRecommend(st.answers);
-
-    // клиенту
-    await ctx.reply(
-      `✅ *Готово!*\n\nВаш “балл сна”: *${score}/10*\n\nРекомендация: *${model}* — ${reason}\n\nХотите — помогу уточнить по росту/весу и ощущениям.`,
-      {
-        parse_mode: "Markdown",
-        ...Markup.inlineKeyboard([
-          [Markup.button.webApp("🛍️ Открыть каталог", WEBAPP_URL)],
-          [Markup.button.callback("🆘 Написать в поддержку", "SUPPORT_OPEN")],
-        ]),
-      }
-    );
-
-    // менеджерам (лид)
-    const lead =
-      `🧪 *Лид из квиза “Тест на сон”*\n` +
-      `Клиент: ${makeUserLabel(ctx)}\n` +
-      `ID: \`${userId}\`\n` +
-      `Балл: *${score}/10*\n` +
-      `Рекомендация: *${model}*\n\n` +
-      `Ответы:\n` +
-      `Возраст: ${st.answers.age ?? "-"}\n` +
-      `Вес: ${st.answers.weight ?? "-"}\n` +
-      `Поза: ${st.answers.pose ?? "-"}\n` +
-      `Боли: ${st.answers.pain ?? "-"}\n` +
-      `Возраст матраса: ${st.answers.mattressAge ?? "-"}\n` +
-      `Аллергия: ${st.answers.allergy ?? "-"}\n` +
-      `Партнёр: ${st.answers.partner ?? "-"}\n` +
-      `Жарко: ${st.answers.hot ?? "-"}`;
-
-    await sendToManagers(lead, { parse_mode: "Markdown" });
-
-    return;
-  }
-
-  // следующий вопрос
-  st.step = ns;
-  quizState.set(userId, st);
-
-  const q = quizQuestion(ns)!;
-  await ctx.reply(q.text, { ...quizKeyboard(ns) });
+  await ctx.reply(
+    "✅ Принято! Менеджер уже получил ваш запрос.\nЕсли нужно — добавьте детали (город, рост/вес, поза сна)."
+  );
 });
 
 /** =========================
@@ -590,28 +509,43 @@ if (st.step !== step) {
 bot.on("shipping_query", async (ctx) => {
   const payload = JSON.parse(ctx.update.shipping_query.invoice_payload);
   const shippingOptions = await woo.getShippingOptions(payload.shippingZone);
-  if (shippingOptions.length) ctx.answerShippingQuery(true, shippingOptions, undefined);
-  else ctx.answerShippingQuery(false, undefined, "No shipping option available at your zone!");
+  if (shippingOptions.length)
+    ctx.answerShippingQuery(true, shippingOptions, undefined);
+  else
+    ctx.answerShippingQuery(
+      false,
+      undefined,
+      "No shipping option available at your zone!"
+    );
 });
 
 bot.on("pre_checkout_query", async (ctx) => {
   const payload = JSON.parse(ctx.update.pre_checkout_query.invoice_payload);
-  const orderInfo = ctx.update.pre_checkout_query.order_info!;
+  const orderInfo = ctx.update.pre_checkout_query.order_info!!;
   const res = await woo.updateOrderInfo(payload.orderId, orderInfo);
   if (res.status === 200) await ctx.answerPreCheckoutQuery(true);
-  else await ctx.answerPreCheckoutQuery(false, "Problem occurred during update order, contact support!");
+  else
+    await ctx.answerPreCheckoutQuery(
+      false,
+      "Problem occurred during update order, contact support!"
+    );
 });
 
 bot.on(message("successful_payment"), async (ctx) => {
-  const payload = JSON.parse(ctx.update.message.successful_payment.invoice_payload);
+  const payload = JSON.parse(
+    ctx.update.message.successful_payment.invoice_payload
+  );
   const res = await woo.setOrderPaid(payload.orderId);
-  if (res.status === 200) ctx.reply("Order successfully registered!");
-  else ctx.reply(`Error registering payment, contact support!\norderId:${payload.orderId}`);
+  if (res.status === 200) {
+    ctx.reply("Order successfully registered!");
+  } else {
+    ctx.reply(
+      `Error registering payment, contact support!\norderId:${payload.orderId}\n${ctx.update.message.successful_payment.telegram_payment_charge_id}\n${ctx.update.message.successful_payment.provider_payment_charge_id}`
+    );
+  }
 });
 
 export function initWebhook() {
-  if (!PUBLIC_URL) throw new Error("PUBLIC_URL is empty. Set PUBLIC_URL=https://shop.ergospine.ru");
-  if (!SECRET_HASH) throw new Error("TELEGRAM_BOT_SECRET is empty. Set TELEGRAM_BOT_SECRET in env.");
   return bot.telegram.setWebhook(WEBHOOK_URL);
 }
 
@@ -623,7 +557,7 @@ export async function createInvoiceLink(
   shippingZone: number
 ) {
   const telegramInvoice = {
-    provider_token: process.env.TELEGRAM_PAYMENT_PROVIDER_TOKEN!,
+    provider_token: process.env.TELEGRAM_PAYMENT_PROVIDER_TOKEN!!,
     title: `Order Invoice ${orderId}`,
     description: `Payment invoice for ${orderKey}`,
     currency,
@@ -641,3 +575,4 @@ export async function createInvoiceLink(
 }
 
 export default bot;
+
