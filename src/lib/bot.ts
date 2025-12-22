@@ -512,11 +512,27 @@ bot.action(/^QUIZ_ANSWER:([^:]+):(.+)$/, async (ctx) => {
   const step = (ctx.match as any)[1] as QuizStep;
   const val = decodeURIComponent((ctx.match as any)[2]);
 
-  const st = quizState.get(userId);
-  if (!st || st.step !== step) {
-    await ctx.reply("Похоже, тест уже обновился. Нажмите /quiz чтобы начать заново.");
-    return;
+ const st = quizState.get(userId);
+
+if (!st) {
+  await ctx.reply("Тест не активен. Нажмите /quiz чтобы начать заново.");
+  return;
+}
+
+// Если прилетел “устаревший” клик по кнопке — просто показываем текущий вопрос
+if (st.step !== step) {
+  const current = quizQuestion(st.step);
+  if (current) {
+    await ctx.reply(
+      "Поймал задержанный клик 🙂\nПродолжаем с текущего вопроса:",
+      { ...quizKeyboard(st.step) }
+    );
+    await ctx.reply(current.text, { ...quizKeyboard(st.step) });
+  } else {
+    await ctx.reply("Тест уже завершён. Нажмите /quiz чтобы начать заново.");
   }
+  return;
+}
 
   // сохраняем ответ
   (st.answers as any)[step] = val;
