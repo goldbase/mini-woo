@@ -1,4 +1,5 @@
 // src/lib/bot.ts
+import "dotenv/config";
 import { Markup, Telegraf } from "telegraf";
 import { message } from "telegraf/filters";
 import { LabeledPrice } from "@telegraf/types";
@@ -6,22 +7,34 @@ import woo from "@/lib/woo";
 
 export const SECRET_HASH = process.env.TELEGRAM_BOT_SECRET!!;
 
-// PUBLIC_URL — домен сайта (для webhook и ссылок)
+/**
+ * PUBLIC_URL — домен сайта (для webhook и ссылок)
+ * Пример: https://shop.ergospine.ru
+ */
 const PUBLIC_URL =
   process.env.PUBLIC_URL ||
   (process.env.NEXT_PUBLIC_VERCEL_URL ? `https://${process.env.NEXT_PUBLIC_VERCEL_URL}` : "");
 
-// URL мини-приложения (web_app)
+/**
+ * Вспомогательная сборка URL
+ */
 function joinUrl(base: string, path: string) {
   const b = (base || "").replace(/\/+$/, "");
   const p = (path || "/").replace(/^\/+/, "");
   return `${b}/${p}`;
 }
 
+/**
+ * URL мини-приложения (web_app)
+ * NEXT_PUBLIC_BASE_PATH обычно "/"
+ */
 const WEBAPP_URL = PUBLIC_URL
   ? joinUrl(PUBLIC_URL, process.env.NEXT_PUBLIC_BASE_PATH || "/")
-  : (process.env.NEXT_PUBLIC_BASE_PATH || "/");
+  : process.env.NEXT_PUBLIC_BASE_PATH || "/";
 
+/**
+ * Webhook URL
+ */
 const WEBHOOK_URL = PUBLIC_URL
   ? `${PUBLIC_URL.replace(/\/+$/, "")}/api/telegram-hook?secret_hash=${SECRET_HASH}`
   : `/api/telegram-hook?secret_hash=${SECRET_HASH}`;
@@ -30,8 +43,9 @@ const BOT_TOKEN = process.env.TELEGRAM_BOT_TOKEN!!;
 const bot = new Telegraf(BOT_TOKEN);
 
 /** =========================
- *  ROUTING / SETTINGS
+ *  SETTINGS / ROUTING
  *  ========================= */
+
 function parseIds(raw: string | undefined): number[] {
   return (raw || "")
     .split(",")
@@ -41,15 +55,26 @@ function parseIds(raw: string | undefined): number[] {
     .filter((n) => Number.isFinite(n) && n > 0);
 }
 
-// Менеджеры поддержки (private chat IDs)
+/**
+ * Менеджеры поддержки (private chat IDs)
+ * Вы задаёте так:
+ * TELEGRAM_SUPPORT_MANAGER_IDS=554...,799...
+ */
 const SUPPORT_MANAGERS = parseIds(
-  process.env.TELEGRAM_SUPPORT_MANAGER_IDS || process.env.TELEGRAM_MANAGER_CHAT_ID || ""
+  process.env.TELEGRAM_SUPPORT_MANAGER_IDS ||
+    process.env.TELEGRAM_MANAGER_CHAT_ID ||
+    ""
 );
 
-// Закрытая группа для контроля (дублирование) — ты просил TELEGRAM_CHAT_ID
-// (можно при желании отдельно TELEGRAM_SUPPORT_STAFF_CHAT_ID)
+/**
+ * Закрытая группа для контроля (дублирование):
+ * Вы хотите дублировать в TELEGRAM_CHAT_ID=-1003510551621
+ * (при желании можно вынести отдельно TELEGRAM_SUPPORT_STAFF_CHAT_ID)
+ */
 const STAFF_CHAT_ID = Number(
-  process.env.TELEGRAM_SUPPORT_STAFF_CHAT_ID || process.env.TELEGRAM_CHAT_ID || ""
+  process.env.TELEGRAM_SUPPORT_STAFF_CHAT_ID ||
+    process.env.TELEGRAM_CHAT_ID ||
+    ""
 );
 const HAS_STAFF_CHAT = Number.isFinite(STAFF_CHAT_ID) && STAFF_CHAT_ID < 0;
 
@@ -84,6 +109,7 @@ function makeUserLabel(from: any) {
 /** =========================
  *  UI TEXTS / KEYBOARDS
  *  ========================= */
+
 function storeStartText() {
   return "Добро пожаловать в ErgoSpine 👋\nВыберите действие:";
 }
@@ -106,7 +132,7 @@ function quizStartText() {
   return (
     "😴 *Тест на сон (2 минуты)*\n\n" +
     "Ответьте на несколько вопросов — и я дам персональную рекомендацию.\n" +
-    "В конце мы отправим результат менеджеру, чтобы помочь быстрее.\n\n" +
+    "В конце попросим контакты (имя + телефон), чтобы менеджер мог связаться.\n\n" +
     "Поехали?"
   );
 }
@@ -133,6 +159,7 @@ function afterQuizKeyboard() {
  *  =========================
  * In-memory маршрутизация тикетов (после рестарта сбросится — для MVP норм)
  */
+
 let ticketSeq = 1000;
 const ticketByUser = new Map<number, number>(); // userId -> ticketId
 const ticketToUser = new Map<number, number>(); // ticketId -> userId
@@ -207,6 +234,7 @@ bot.command("cancel", async (ctx) => {
 /** =========================
  *  QUIZ (in-memory)
  *  ========================= */
+
 type QuizStep =
   | "age"
   | "weight"
@@ -216,10 +244,13 @@ type QuizStep =
   | "allergy"
   | "partner"
   | "hot"
+  | "contact_name"
+  | "contact_phone"
+  | "contact_address"
   | "done";
 
 type QuizSession = {
-  version: number; // защита от “залипания” старых callback
+  version: number; // защита от “старых” callback
   step: QuizStep;
   answers: Record<string, string>;
   createdAt: number;
@@ -243,7 +274,7 @@ function getQuiz(userId: number): QuizSession | null {
 
 // callback формат: Q:<ver>:<step>:<value>
 function qData(ver: number, step: QuizStep, value: string) {
-  // Важно уложиться в 64 байта
+  // Важно: callback_data <= 64 байт
   return `Q:${ver}:${step}:${value}`.slice(0, 64);
 }
 
@@ -346,7 +377,7 @@ function nextStep(step: QuizStep): QuizStep {
 }
 
 function computeQuizResult(answers: Record<string, string>) {
-  // Простейший скоринг 0..10
+  // скоринг 0..10
   let score = 10;
 
   if (answers.pain === "often") score -= 3;
@@ -364,7 +395,6 @@ function computeQuizResult(answers: Record<string, string>) {
 
   score = Math.max(0, Math.min(10, score));
 
-  // Рекомендация (очень грубо, но работает как лид-магнит)
   let model = "Spinal Duo";
   let reason = "универсальная поддержка и баланс комфорта/жёсткости.";
 
@@ -386,6 +416,7 @@ async function sendQuizLead(from: any, answers: Record<string, string>, result: 
 
   const pretty = (k: string, v: string) => `${k}: ${v}`;
 
+  // ✅ ВОТ ЗДЕСЬ как раз и нужны ваши строки pretty("Имя"...)
   const lines = [
     "😴 *Лид из квиза (Тест на сон)*",
     `Клиент: ${userLabel}`,
@@ -401,6 +432,11 @@ async function sendQuizLead(from: any, answers: Record<string, string>, result: 
     pretty("Партнёр", answers.partner || "-"),
     pretty("Жарко ночью", answers.hot || "-"),
     "",
+    "*Контакты:*",
+    pretty("Имя", answers.contact_name || "-"),
+    pretty("Телефон", answers.contact_phone || "-"),
+    pretty("Адрес", answers.contact_address || "(не указан)"),
+    "",
     `*Скор:* ${result.score}/10`,
     `*Рекомендация:* ${result.model}`,
     `*Почему:* ${result.reason}`,
@@ -411,13 +447,14 @@ async function sendQuizLead(from: any, answers: Record<string, string>, result: 
   // 1) менеджерам
   await sendToManagers(text, { parse_mode: "Markdown" });
 
-  // 2) дублирование в закрытую группу контроля
+  // 2) дубль в закрытую группу контроля
   await sendToStaff(text, { parse_mode: "Markdown" });
 }
 
 /** =========================
  *  START / MENU / QUIZ ENTRY
  *  ========================= */
+
 bot.start(async (ctx) => {
   const payload = (ctx.startPayload || "").trim();
 
@@ -438,6 +475,8 @@ bot.start(async (ctx) => {
 
   await ctx.reply(storeStartText(), mainKeyboard());
 });
+
+bot.help((ctx) => ctx.reply("Напишите /start чтобы открыть меню. Или /quiz чтобы начать тест."));
 
 bot.command("menu", (ctx) =>
   ctx.setChatMenuButton({
@@ -465,7 +504,8 @@ bot.action("QUIZ_START", async (ctx) => {
 /** =========================
  *  QUIZ CALLBACK HANDLER
  *  ========================= */
-bot.action(/^Q:(\d+):([a-zA-Z]+):(.+)$/, async (ctx) => {
+
+bot.action(/^Q:(\d+):([a-zA-Z_]+):(.+)$/, async (ctx) => {
   await ctx.answerCbQuery().catch(() => {});
 
   const userId = ctx.from?.id;
@@ -481,13 +521,11 @@ bot.action(/^Q:(\d+):([a-zA-Z]+):(.+)$/, async (ctx) => {
     return;
   }
 
-  // защита от “устаревших” кнопок
   if (q.version !== ver) {
     await ctx.reply("Похоже, тест обновился. Нажмите /quiz чтобы начать заново.");
     return;
   }
 
-  // защита от кликов не на том шаге
   if (q.step !== step) {
     await ctx.reply("Похоже, вы нажали кнопку из прошлого вопроса. Нажмите /quiz чтобы начать заново.");
     return;
@@ -496,86 +534,154 @@ bot.action(/^Q:(\d+):([a-zA-Z]+):(.+)$/, async (ctx) => {
   // сохраняем ответ
   q.answers[step] = value;
 
+  // следующий шаг среди кнопочных
   const ns = nextStep(step);
   q.step = ns;
 
+  // вопросы кнопками — красиво редактируем то же сообщение
   if (ns !== "done") {
-    await ctx.reply(quizQuestionText(ns), quizKeyboard(q.version, ns));
+    await ctx
+      .editMessageText(quizQuestionText(ns), quizKeyboard(q.version, ns) as any)
+      .catch(async () => {
+        // fallback если edit не сработал
+        await ctx.reply(quizQuestionText(ns), quizKeyboard(q.version, ns));
+      });
     return;
   }
 
-  // финал
+  // Финал кнопочной части
   const result = computeQuizResult(q.answers);
 
-  await ctx.reply(
-    `✅ *Готово! Ваш балл по сну:* *${result.score}/10*\n\n` +
-      `Рекомендация: *${result.model}*\n` +
-      `Почему: ${result.reason}\n\n` +
-      `Хотите — менеджер уточнит детали и поможет выбрать лучший вариант.`,
-    { parse_mode: "Markdown", ...afterQuizKeyboard() }
-  );
+  // заменяем последнее сообщение итогом
+  await ctx
+    .editMessageText(
+      `✅ *Готово! Ваш балл по сну:* *${result.score}/10*\n\n` +
+        `Рекомендация: *${result.model}*\n` +
+        `Почему: ${result.reason}\n\n` +
+        `📩 Чтобы мы могли связаться и помочь точнее — оставьте контакты.`,
+      { parse_mode: "Markdown", ...(afterQuizKeyboard() as any) }
+    )
+    .catch(async () => {
+      await ctx.reply(
+        `✅ *Готово! Ваш балл по сну:* *${result.score}/10*\n\n` +
+          `Рекомендация: *${result.model}*\n` +
+          `Почему: ${result.reason}\n\n` +
+          `📩 Чтобы мы могли связаться и помочь точнее — оставьте контакты.`,
+        { parse_mode: "Markdown", ...(afterQuizKeyboard() as any) }
+      );
+    });
 
-  // отправляем лид менеджерам + в закрытую группу контроля
-  await sendQuizLead(ctx.from, q.answers, result);
-
-  // можно очистить сессию (или оставить)
-  quizSessionByUser.delete(userId);
+  // дальше — контакты текстом
+  q.step = "contact_name";
+  await ctx.reply("👤 Напишите *имя* (обязательно):", { parse_mode: "Markdown" });
 });
 
 /** =========================
- *  MESSAGES: SUPPORT ROUTING
+ *  TEXT MESSAGES: QUIZ CONTACT + SUPPORT + MANAGER REPLY
  *  ========================= */
+
 bot.on(message("text"), async (ctx) => {
   const fromId = ctx.from?.id;
   if (!fromId) return;
 
-  const chatType = ctx.chat?.type;
+  const chatType = ctx.chat?.type; // ✅ важно, раньше у вас могло быть не объявлено
+  const textRaw = (ctx.message.text || "").trim();
 
-  // 1) менеджер в режиме ответа -> отправляем клиенту
+  /** ====== 1) MANAGER REPLY MODE (support) ====== */
   if (SUPPORT_MANAGERS.includes(fromId) && managerReplyMode.has(fromId)) {
     const userId = managerReplyMode.get(fromId)!;
-    const text = ctx.message.text;
 
-    const ok = await safeSendMessage(
-      userId,
-      `💬 *Ответ поддержки*\n\n${text}`,
-      { parse_mode: "Markdown" }
-    );
-
-    if (ok) {
+    try {
+      await bot.telegram.sendMessage(userId, `💬 *Ответ поддержки*\n\n${textRaw}`, {
+        parse_mode: "Markdown",
+      });
       await ctx.reply("✅ Отправлено клиенту.");
-    } else {
-      await ctx.reply("❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его.");
+    } catch (e) {
+      await ctx.reply(
+        "❌ Не удалось отправить клиенту. Возможно, клиент не писал боту или заблокировал его."
+      );
     }
     return;
   }
 
-  // 2) поддержка работает только в private
+  /** ====== 2) QUIZ CONTACT FLOW (приоритетнее поддержки) ====== */
+  const q = getQuiz(fromId);
+  if (q && chatType === "private") {
+    // Имя
+    if (q.step === "contact_name") {
+      if (textRaw.length < 2) {
+        await ctx.reply("Имя слишком короткое. Напишите, пожалуйста, имя ещё раз 🙂");
+        return;
+      }
+      q.answers.contact_name = textRaw;
+      q.step = "contact_phone";
+      await ctx.reply("📞 Теперь напишите *телефон* (обязательно, можно с +7):", {
+        parse_mode: "Markdown",
+      });
+      return;
+    }
+
+    // Телефон
+    if (q.step === "contact_phone") {
+      const phoneOk = /^[\d\s+()-]{10,}$/.test(textRaw);
+      if (!phoneOk) {
+        await ctx.reply("Похоже, телефон некорректный. Пример: +7 999 123-45-67");
+        return;
+      }
+      q.answers.contact_phone = textRaw;
+      q.step = "contact_address";
+
+      await ctx.reply(
+        "🏠 Адрес доставки (необязательно).\n" +
+          "Если пока не знаете — напишите *-*\n" +
+          "Или укажите город/район, чтобы посчитать доставку.",
+        { parse_mode: "Markdown" }
+      );
+      return;
+    }
+
+    // Адрес (опционально) -> отправляем лид
+    if (q.step === "contact_address") {
+      q.answers.contact_address = textRaw === "-" ? "" : textRaw;
+
+      const result = computeQuizResult(q.answers);
+
+      await ctx.reply(
+        "✅ Спасибо! Контакты получены.\nМенеджер свяжется с вами и поможет подобрать лучший вариант."
+      );
+
+      await sendQuizLead(ctx.from, q.answers, result);
+
+      // закрываем сессию
+      quizSessionByUser.delete(fromId);
+      return;
+    }
+  }
+
+  /** ====== 3) SUPPORT: only private ====== */
   if (chatType !== "private") return;
 
-  // Если человек пишет "поддержка" — мягко показываем инструкцию
-  const t = (ctx.message.text || "").trim().toLowerCase();
+  const t = textRaw.toLowerCase();
   if (t === "поддержка" || t === "help" || t === "/support") {
     await ctx.reply(supportStartText(), { parse_mode: "Markdown" });
     return;
   }
 
-  // 3) обычный пользователь -> создаём тикет и шлём менеджерам (+ дубль в группу)
+  // обычный пользователь -> создаём тикет и шлём менеджерам (+ дубль в группу)
   const ticketId = ensureTicket(fromId);
   const userLabel = makeUserLabel(ctx.from);
-  const text = ctx.message.text;
 
   const msg =
     `🆘 *Новый запрос поддержки*\n` +
     `Тикет: #${ticketId}\n` +
     `Клиент: ${userLabel}\n` +
     `ID: \`${fromId}\`\n\n` +
-    `Сообщение:\n${text}`;
+    `Сообщение:\n${textRaw}`;
 
   const extra = { parse_mode: "Markdown", ...managerTicketKeyboard(ticketId) };
 
   await sendToManagers(msg, extra);
-  await sendToStaff(msg, extra); // ✅ дублирование в закрытую группу контроля
+  await sendToStaff(msg, extra); // ✅ дубль в закрытую группу контроля
 
   await ctx.reply(
     "✅ Принято! Менеджер уже получил ваш запрос.\nЕсли нужно — добавьте детали (город, рост/вес, поза сна)."
@@ -585,6 +691,7 @@ bot.on(message("text"), async (ctx) => {
 /** =========================
  *  EXISTING: shipping/payment
  *  ========================= */
+
 bot.on("shipping_query", async (ctx) => {
   const payload = JSON.parse(ctx.update.shipping_query.invoice_payload);
   const shippingOptions = await woo.getShippingOptions(payload.shippingZone);
@@ -615,6 +722,7 @@ bot.on(message("successful_payment"), async (ctx) => {
 /** =========================
  *  WEBHOOK INIT
  *  ========================= */
+
 export function initWebhook() {
   return bot.telegram.setWebhook(WEBHOOK_URL);
 }
